@@ -12,8 +12,11 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
 
     private val tripIdRegex = Regex("""(?:Trip|Order|OSN)[\s#:]*([A-Za-z0-9\-]{4,12})""", RegexOption.IGNORE_CASE)
     private val currencyRegex = Regex("""\$([0-9]+\.[0-9]{2})""")
-    private val tipAnchorRegex = Regex("""(?i)(Customer\s+Tip|Estimated\s+Tip|Tip)""")
+    private val tipAnchorRegex = Regex("""(?i)(Customer\s+Tip|Estimated\s+Tip|Confirmed\s+Tip|Tip)""")
     private val basePayAnchorRegex = Regex("""(?i)(Base\s+Pay|Delivery\s+Pay|Spark\s+Pay)""")
+    private val extraPayAnchorRegex = Regex("""(?i)(Extra\s+Earnings|Incentive|Bonus|Wait\s+Time|Surge)""")
+    private val timeRegex = Regex("""\b(\d{1,2}:\d{2}\s*(?:AM|PM|am|pm))\b""")
+    private val stopCountRegex = Regex("""(\d+)\s*(?:stops?|drop-?offs?|drops?)""", RegexOption.IGNORE_CASE)
 
     suspend fun navigateAndCollectTrips(
         root: AccessibilityNodeInfo,
@@ -23,7 +26,7 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
     ): List<SparkCompletedTrip> {
         val collectedTrips = mutableListOf<SparkCompletedTrip>()
 
-        // 1. Locate and click "Trips" Navigation Tab (via recorded steps or default semantic search)
+        // 1. Locate and click "Trips" Navigation Tab
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
@@ -65,10 +68,12 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
 
     suspend fun navigateAndCollectEarnings(
         root: AccessibilityNodeInfo,
-        targetTripIds: Set<String>,
+        startDate: LocalDate,
+        endDate: LocalDate,
+        targetTripIds: Set<String> = emptySet(),
         customRecipe: com.gigscope.auditor.domain.model.AppPhaseRecipe? = null
     ): List<SparkEarningsBreakdown> {
-        // Navigate to "Earnings" (via recorded steps or default semantic search)
+        // Navigate to "Earnings"
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
@@ -77,33 +82,37 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         }
 
         val earningsList = mutableListOf<SparkEarningsBreakdown>()
-        val currentWindow = actionHelper.getActiveWindowRoot() ?: return earningsList
+        var reachedPastStartDate = false
+        var scrollAttempts = 0
+        val maxScrolls = 25
 
-        // Locate breakdowns for target trips
-        val tripNodes = actionHelper.findNodesByPattern(currentWindow, tripIdRegex)
-        for (node in tripNodes) {
-            val text = node.text?.toString() ?: continue
-            val tripId = tripIdRegex.find(text)?.groupValues?.get(1) ?: continue
+        while (!reachedPastStartDate && scrollAttempts < maxScrolls) {
+            val currentWindow = actionHelper.getActiveWindowRoot() ?: break
+            val tripNodes = actionHelper.findNodesByPattern(currentWindow, tripIdRegex)
 
-            if (targetTripIds.contains(tripId)) {
+            for (node in tripNodes) {
                 val card = actionHelper.findParentContainer(node, depth = 3) ?: node
-                val tipStr = HierarchyCrawler.findValueAdjacentToLabel(card, tipAnchorRegex, currencyRegex)
-                val baseStr = HierarchyCrawler.findValueAdjacentToLabel(card, basePayAnchorRegex, currencyRegex)
+                val earning = parseEarningsCard(card) ?: continue
 
-                val tip = tipStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
-                val base = baseStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
+                if (earning.date.isBefore(startDate)) {
+                    reachedPastStartDate = true
+                    break
+                }
 
-                earningsList.add(
-                    SparkEarningsBreakdown(
-                        tripId = tripId,
-                        date = LocalDate.now(),
-                        basePay = base,
-                        confirmedTip = tip,
-                        totalEarnings = base + tip
-                    )
-                )
+                val matchesTarget = targetTripIds.isEmpty() || targetTripIds.contains(earning.tripId)
+                if (matchesTarget && !earning.date.isAfter(endDate) && earningsList.none { it.tripId == earning.tripId }) {
+                    earningsList.add(earning)
+                }
+            }
+
+            if (!reachedPastStartDate) {
+                val scrolled = actionHelper.performScrollForward(currentWindow)
+                if (!scrolled) break
+                scrollAttempts++
+                actionHelper.waitForUiStabilization(400)
             }
         }
+
         return earningsList
     }
 
@@ -118,16 +127,78 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         val tipStr = HierarchyCrawler.findValueAdjacentToLabel(card, tipAnchorRegex, currencyRegex)
         val tip = tipStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
 
-        // Extract customer stop details or address if available
-        val customerDetails = if (content.contains("Stop", ignoreCase = true)) {
-            content.split("|").firstOrNull { it.contains("Stop", ignoreCase = true) }?.trim()
-        } else null
+        val timeMatch = timeRegex.find(content)?.value
+
+        val stopCountMatch = stopCountRegex.find(content)?.groupValues?.get(1)?.toIntOrNull() ?: 1
+
+        val tripType = when {
+            content.contains("Shop & Deliver", ignoreCase = true) || content.contains("Shopping", ignoreCase = true) -> "Shop & Deliver"
+            content.contains("Curbside", ignoreCase = true) -> "Curbside Pickup"
+            content.contains("Express", ignoreCase = true) -> "Express Delivery"
+            content.contains("Return", ignoreCase = true) -> "Customer Return"
+            else -> "Delivery"
+        }
+
+        // Extract customer drop details / addresses / customer names
+        val customerDetails = content.split("|")
+            .map { it.trim() }
+            .filter { seg ->
+                seg.contains("Stop", ignoreCase = true) ||
+                        seg.contains("Drop", ignoreCase = true) ||
+                        seg.contains("St", ignoreCase = true) ||
+                        seg.contains("Ave", ignoreCase = true) ||
+                        seg.contains("Rd", ignoreCase = true) ||
+                        seg.contains("Dr", ignoreCase = true) ||
+                        seg.contains("Blvd", ignoreCase = true)
+            }
+            .take(3)
+            .joinToString(" • ")
+            .ifBlank { null }
+
+        val allCurrencies = currencyRegex.findAll(content).mapNotNull { it.groupValues[1].toDoubleOrNull() }.toList()
+        val maxCurrency = allCurrencies.maxOrNull()
 
         return SparkCompletedTrip(
             tripId = tripId,
             tripDate = LocalDate.now(),
+            completedTime = timeMatch,
+            tripType = tripType,
+            stopCount = stopCountMatch,
             initialOfferedTip = tip,
-            customerDropDetails = customerDetails
+            customerDropDetails = customerDetails,
+            rawTotalEstimate = maxCurrency,
+            rawText = content
+        )
+    }
+
+    private fun parseEarningsCard(card: AccessibilityNodeInfo): SparkEarningsBreakdown? {
+        val textDump = StringBuilder()
+        HierarchyCrawler.findNodesByRegex(card, Regex(".*")).forEach {
+            it.text?.let { t -> textDump.append(t).append(" | ") }
+        }
+        val content = textDump.toString()
+        val tripId = tripIdRegex.find(content)?.groupValues?.get(1) ?: return null
+
+        val tipStr = HierarchyCrawler.findValueAdjacentToLabel(card, tipAnchorRegex, currencyRegex)
+        val baseStr = HierarchyCrawler.findValueAdjacentToLabel(card, basePayAnchorRegex, currencyRegex)
+        val extraStr = HierarchyCrawler.findValueAdjacentToLabel(card, extraPayAnchorRegex, currencyRegex)
+
+        val tip = tipStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
+        val base = baseStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
+        val extra = extraStr?.replace("$", "")?.toDoubleOrNull() ?: 0.0
+        val total = base + tip + extra
+
+        val timeMatch = timeRegex.find(content)?.value
+
+        return SparkEarningsBreakdown(
+            tripId = tripId,
+            date = LocalDate.now(),
+            basePay = base,
+            confirmedTip = tip,
+            extraEarnings = extra,
+            totalEarnings = total,
+            timestamp = timeMatch,
+            rawEarningDetails = content
         )
     }
 }

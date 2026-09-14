@@ -6,8 +6,13 @@ data class SparkCompletedTrip(
     val tripId: String,
     val tripDate: LocalDate,
     val initialOfferedTip: Double,
-    val customerDropDetails: String?,
-    val isCompleted: Boolean = true
+    val customerDropDetails: String? = null,
+    val isCompleted: Boolean = true,
+    val completedTime: String? = null,
+    val tripType: String? = null,
+    val stopCount: Int = 1,
+    val rawTotalEstimate: Double? = null,
+    val rawText: String? = null
 )
 
 data class SparkEarningsBreakdown(
@@ -15,15 +20,27 @@ data class SparkEarningsBreakdown(
     val date: LocalDate,
     val basePay: Double,
     val confirmedTip: Double,
-    val totalEarnings: Double
+    val totalEarnings: Double,
+    val timestamp: String? = null,
+    val extraEarnings: Double = 0.0,
+    val rawEarningDetails: String? = null
 )
+
+enum class OnePayTransactionType {
+    TRIP_EARNING,
+    TIP_DEPOSIT,
+    OTHER
+}
 
 data class OnePayDeposit(
     val referenceId: String,
     val date: LocalDate,
     val amount: Double,
-    val sender: String,
-    val matchedTripId: String? = null
+    val sender: String = "Spark Driver / Walmart",
+    val matchedTripId: String? = null,
+    val transactionType: OnePayTransactionType = OnePayTransactionType.TIP_DEPOSIT,
+    val timestamp: String? = null,
+    val rawDescription: String? = null
 )
 
 data class PhotoOfferRecord(
@@ -31,8 +48,11 @@ data class PhotoOfferRecord(
     val offeredTip: Double,
     val basePay: Double,
     val captureDate: LocalDate,
+    val timestamp: String? = null,
     val imageUri: String? = null,
-    val isAccepted: Boolean = false
+    val isAccepted: Boolean = false,
+    val extractedText: String? = null,
+    val estimatedTotal: Double? = null
 )
 
 enum class DiscrepancyType {

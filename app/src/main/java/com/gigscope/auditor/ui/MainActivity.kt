@@ -82,7 +82,6 @@ class MainActivity : ComponentActivity() {
                             endDate = endDate,
                             sparkApkPath = sparkApkPath,
                             onePayApkPath = onePayApkPath,
-                            photosApkPath = photosApkPath,
                             recipes = appRecipes.toMap()
                         )
                         contentResolver.openOutputStream(uri)?.use { os ->
@@ -91,6 +90,70 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, "Configuration saved successfully", Toast.LENGTH_SHORT).show()
                     } catch (e: Exception) {
                         Toast.makeText(this@MainActivity, "Error saving config: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            // Save Spark Driver Results Launcher (JSON)
+            val saveSparkResultsLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                if (uri != null) {
+                    try {
+                        val json = com.gigscope.auditor.data.local.ResultExporters.exportSparkResultsJson(
+                            startDate = startDate,
+                            endDate = endDate,
+                            trips = sparkTrips,
+                            earnings = sparkEarnings
+                        )
+                        contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(json.toByteArray(Charsets.UTF_8))
+                        }
+                        Toast.makeText(this@MainActivity, "Spark results saved (${sparkTrips.size} trips, ${sparkEarnings.size} earnings)", Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Error saving Spark results: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            // Save OnePay Results Launcher (JSON)
+            val saveOnePayResultsLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                if (uri != null) {
+                    try {
+                        val json = com.gigscope.auditor.data.local.ResultExporters.exportOnePayResultsJson(
+                            startDate = startDate,
+                            endDate = endDate,
+                            deposits = onePayDeposits
+                        )
+                        contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(json.toByteArray(Charsets.UTF_8))
+                        }
+                        Toast.makeText(this@MainActivity, "OnePay results saved (${onePayDeposits.size} records)", Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Error saving OnePay results: ${e.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+
+            // Save Google Photos Results Launcher (JSON)
+            val savePhotosResultsLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/json")
+            ) { uri ->
+                if (uri != null) {
+                    try {
+                        val json = com.gigscope.auditor.data.local.ResultExporters.exportPhotosResultsJson(
+                            startDate = startDate,
+                            endDate = endDate,
+                            offers = photoOffers
+                        )
+                        contentResolver.openOutputStream(uri)?.use { os ->
+                            os.write(json.toByteArray(Charsets.UTF_8))
+                        }
+                        Toast.makeText(this@MainActivity, "Photos results saved (${photoOffers.size} screenshot offers)", Toast.LENGTH_LONG).show()
+                    } catch (e: Exception) {
+                        Toast.makeText(this@MainActivity, "Error saving Photos results: ${e.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -144,6 +207,22 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, "Spark Data Collected!", Toast.LENGTH_SHORT).show()
                     }
                 }
+                GigScopeAccessibilityService.onSparkTripsCollected = { trips ->
+                    runOnUiThread {
+                        sparkTrips.clear()
+                        sparkTrips.addAll(trips)
+                        sparkStatus = "Found ${trips.size} trips (${sparkEarnings.size} earnings)"
+                        Toast.makeText(this@MainActivity, "Found ${trips.size} Spark trips!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                GigScopeAccessibilityService.onSparkEarningsCollected = { earnings ->
+                    runOnUiThread {
+                        sparkEarnings.clear()
+                        sparkEarnings.addAll(earnings)
+                        sparkStatus = "Found ${sparkTrips.size} trips (${earnings.size} earnings)"
+                        Toast.makeText(this@MainActivity, "Found ${earnings.size} Spark earnings breakdowns!", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 GigScopeAccessibilityService.onOnePayDataCollected = { deposits ->
                     runOnUiThread {
                         onePayDeposits.clear()
@@ -152,12 +231,40 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this@MainActivity, "OnePay Data Collected!", Toast.LENGTH_SHORT).show()
                     }
                 }
+                GigScopeAccessibilityService.onOnePayTripEarningsCollected = { tripEarnings ->
+                    runOnUiThread {
+                        val existingTips = onePayDeposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
+                        onePayDeposits.clear()
+                        onePayDeposits.addAll(tripEarnings)
+                        onePayDeposits.addAll(existingTips)
+                        onePayStatus = "OnePay: ${tripEarnings.size} trip earnings, ${existingTips.size} tips"
+                        Toast.makeText(this@MainActivity, "Found ${tripEarnings.size} trip earnings deposits!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                GigScopeAccessibilityService.onOnePayTipDepositsCollected = { tipDeposits ->
+                    runOnUiThread {
+                        val existingTripEarnings = onePayDeposits.filter { it.transactionType == OnePayTransactionType.TRIP_EARNING }
+                        onePayDeposits.clear()
+                        onePayDeposits.addAll(existingTripEarnings)
+                        onePayDeposits.addAll(tipDeposits)
+                        onePayStatus = "OnePay: ${existingTripEarnings.size} trip earnings, ${tipDeposits.size} tips"
+                        Toast.makeText(this@MainActivity, "Found ${tipDeposits.size} tip deposits!", Toast.LENGTH_SHORT).show()
+                    }
+                }
                 GigScopeAccessibilityService.onPhotosDataCollected = { offers ->
                     runOnUiThread {
                         photoOffers.clear()
                         photoOffers.addAll(offers)
                         photosStatus = "Collected ${offers.size} screenshot cards"
                         Toast.makeText(this@MainActivity, "Photos Data Collected!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                GigScopeAccessibilityService.onPhotosScreenshotsExtracted = { offers ->
+                    runOnUiThread {
+                        photoOffers.clear()
+                        photoOffers.addAll(offers)
+                        photosStatus = "Extracted ${offers.size} screenshot offers"
+                        Toast.makeText(this@MainActivity, "Extracted ${offers.size} screenshots to text!", Toast.LENGTH_SHORT).show()
                     }
                 }
                 GigScopeAccessibilityService.onRecipeRecorded = { recipe ->
@@ -212,9 +319,9 @@ class MainActivity : ComponentActivity() {
                     saveAutoPrefs()
                     saveConfigLauncher.launch("gigscope_config.json")
                 },
-                onTestSpark = { launchAppForTest("com.walmart.sparkdriver", sparkApkPath, ExecutionTarget.TEST_SPARK) },
-                onTestOnePay = { launchAppForTest("com.onefinance.one", onePayApkPath, ExecutionTarget.TEST_ONEPAY) },
-                onTestPhotos = { launchAppForTest("com.google.android.apps.photos", photosApkPath, ExecutionTarget.TEST_PHOTOS) },
+                onTestSpark = { launchAppForTest("com.walmart.sparkdriver", sparkApkPath, ExecutionTarget.TEST_SPARK, startDate, endDate) },
+                onTestOnePay = { launchAppForTest("com.onefinance.one", onePayApkPath, ExecutionTarget.TEST_ONEPAY, startDate, endDate) },
+                onTestPhotos = { launchAppForTest("com.google.android.apps.photos", photosApkPath, ExecutionTarget.TEST_PHOTOS, startDate, endDate) },
                 onTeachSpark = { launchAppForRecord("com.walmart.sparkdriver", sparkApkPath, "Spark Driver", listOf("trips", "earnings")) },
                 onTeachOnePay = { launchAppForRecord("com.onefinance.one", onePayApkPath, "OnePay", listOf("activity")) },
                 onTeachPhotos = { launchAppForRecord("com.google.android.apps.photos", photosApkPath, "Google Photos", listOf("screenshots")) },
@@ -261,6 +368,34 @@ class MainActivity : ComponentActivity() {
                 onOpenAccessibilitySettings = {
                     val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
                     startActivity(intent)
+                },
+                sparkTrips = sparkTrips,
+                sparkEarnings = sparkEarnings,
+                onePayDeposits = onePayDeposits,
+                photoOffers = photoOffers,
+                onFindSparkTrips = {
+                    launchAppForTest("com.walmart.sparkdriver", sparkApkPath, ExecutionTarget.SPARK_FIND_TRIPS, startDate, endDate)
+                },
+                onFindSparkEarnings = {
+                    launchAppForTest("com.walmart.sparkdriver", sparkApkPath, ExecutionTarget.SPARK_FIND_EARNINGS, startDate, endDate)
+                },
+                onSaveSparkResults = {
+                    saveSparkResultsLauncher.launch("spark_results_${startDate}_to_${endDate}.json")
+                },
+                onFindOnePayTripEarnings = {
+                    launchAppForTest("com.onefinance.one", onePayApkPath, ExecutionTarget.ONEPAY_FIND_TRIP_EARNINGS, startDate, endDate)
+                },
+                onFindOnePayTipDeposits = {
+                    launchAppForTest("com.onefinance.one", onePayApkPath, ExecutionTarget.ONEPAY_FIND_TIP_DEPOSITS, startDate, endDate)
+                },
+                onSaveOnePayResults = {
+                    saveOnePayResultsLauncher.launch("onepay_results_${startDate}_to_${endDate}.json")
+                },
+                onFindAndExtractScreenshots = {
+                    launchAppForTest("com.google.android.apps.photos", photosApkPath, ExecutionTarget.PHOTOS_EXTRACT_SCREENSHOTS, startDate, endDate)
+                },
+                onSavePhotosResults = {
+                    savePhotosResultsLauncher.launch("photos_results_${startDate}_to_${endDate}.json")
                 }
             )
         }
@@ -297,13 +432,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launchAppForTest(defaultPackage: String, customApkPath: String, target: ExecutionTarget) {
+    private fun launchAppForTest(
+        defaultPackage: String,
+        customApkPath: String,
+        target: ExecutionTarget,
+        startDate: LocalDate? = null,
+        endDate: LocalDate? = null
+    ) {
         if (GigScopeAccessibilityService.instance == null) {
             Toast.makeText(this, "Please enable GigScope Accessibility Service first", Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             return
         }
 
+        if (startDate != null) GigScopeAccessibilityService.queryStartDate = startDate
+        if (endDate != null) GigScopeAccessibilityService.queryEndDate = endDate
         GigScopeAccessibilityService.activeTarget = target
 
         val targetPackage = resolveTargetPackage(defaultPackage, customApkPath)

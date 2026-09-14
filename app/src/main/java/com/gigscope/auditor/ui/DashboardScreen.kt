@@ -39,8 +39,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gigscope.auditor.BuildConfig
-import com.gigscope.auditor.domain.model.CustomerTipDiscrepancy
-import com.gigscope.auditor.domain.model.DiscrepancyType
+import com.gigscope.auditor.domain.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.Instant
@@ -87,11 +86,55 @@ fun DashboardScreen(
     onRunFullAudit: () -> Unit,
     discrepancies: List<CustomerTipDiscrepancy>,
     isAccessibilityEnabled: Boolean,
-    onOpenAccessibilitySettings: () -> Unit
+    onOpenAccessibilitySettings: () -> Unit,
+    sparkTrips: List<SparkCompletedTrip> = emptyList(),
+    sparkEarnings: List<SparkEarningsBreakdown> = emptyList(),
+    onePayDeposits: List<OnePayDeposit> = emptyList(),
+    photoOffers: List<PhotoOfferRecord> = emptyList(),
+    onFindSparkTrips: () -> Unit = {},
+    onFindSparkEarnings: () -> Unit = {},
+    onSaveSparkResults: () -> Unit = {},
+    onFindOnePayTripEarnings: () -> Unit = {},
+    onFindOnePayTipDeposits: () -> Unit = {},
+    onSaveOnePayResults: () -> Unit = {},
+    onFindAndExtractScreenshots: () -> Unit = {},
+    onSavePhotosResults: () -> Unit = {}
 ) {
     val focusManager = LocalFocusManager.current
     var showConfigMenu by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
+
+    var showSparkTripsDialog by remember { mutableStateOf(false) }
+    var showSparkEarningsDialog by remember { mutableStateOf(false) }
+    var showOnePayTripEarningsDialog by remember { mutableStateOf(false) }
+    var showOnePayTipDepositsDialog by remember { mutableStateOf(false) }
+    var showPhotosDialog by remember { mutableStateOf(false) }
+
+    if (showSparkTripsDialog) {
+        SparkTripsDialog(trips = sparkTrips, onDismiss = { showSparkTripsDialog = false })
+    }
+    if (showSparkEarningsDialog) {
+        SparkEarningsDialog(earnings = sparkEarnings, onDismiss = { showSparkEarningsDialog = false })
+    }
+    if (showOnePayTripEarningsDialog) {
+        OnePayDepositsDialog(
+            title = "OnePay Trip Earnings",
+            subtitle = "Direct trip earnings & delivery payments with exact timestamps",
+            deposits = onePayDeposits.filter { it.transactionType == OnePayTransactionType.TRIP_EARNING },
+            onDismiss = { showOnePayTripEarningsDialog = false }
+        )
+    }
+    if (showOnePayTipDepositsDialog) {
+        OnePayDepositsDialog(
+            title = "OnePay Tip Deposits",
+            subtitle = "Customer tip deposits (credited ~24h after delivery)",
+            deposits = onePayDeposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT },
+            onDismiss = { showOnePayTipDepositsDialog = false }
+        )
+    }
+    if (showPhotosDialog) {
+        PhotosOffersDialog(offers = photoOffers, onDismiss = { showPhotosDialog = false })
+    }
 
     if (showAboutDialog) {
         AboutDialog(onDismissRequest = { showAboutDialog = false })
@@ -222,7 +265,7 @@ fun DashboardScreen(
                 AppCard(
                     title = "1. Spark Driver",
                     defaultPackage = "com.walmart.sparkdriver",
-                    targetDescription = "Target: 'Trips' (history & stops) & 'Earnings' (base pay vs confirmed tips)",
+                    targetDescription = "Target: 'Trips' (history, stops & customer info) & 'Earnings' (breakdowns & tips)",
                     status = sparkStatus,
                     apkPath = sparkApkPath,
                     hasCustomRecipe = hasSparkRecipe,
@@ -230,16 +273,86 @@ fun DashboardScreen(
                     buttonText = "Test Spark Traversal",
                     onTestClick = onTestSpark,
                     onTeachClick = onTeachSpark,
-                    onResetRecipeClick = onResetSparkRecipe
+                    onResetRecipeClick = onResetSparkRecipe,
+                    extraContent = {
+                        // Discovery Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onFindSparkTrips,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Find Trips", fontSize = 12.sp)
+                            }
+                            Button(
+                                onClick = onFindSparkEarnings,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Find Earnings", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // View Extracted Data Dialog Launchers
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showSparkTripsDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("View Trips (${sparkTrips.size})", fontSize = 12.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { showSparkEarningsDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("View Earnings (${sparkEarnings.size})", fontSize = 12.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Save Spark Results Button
+                        Button(
+                            onClick = onSaveSparkResults,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            )
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Save Spark Results (${sparkTrips.size} trips, ${sparkEarnings.size} earnings)")
+                        }
+                    }
                 )
             }
 
             // App 2: OnePay
             item {
+                val tripEarningsCount = onePayDeposits.count { it.transactionType == OnePayTransactionType.TRIP_EARNING }
+                val tipDepositsCount = onePayDeposits.count { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
+
                 AppCard(
                     title = "2. OnePay (One Finance)",
                     defaultPackage = "com.onefinance.one",
-                    targetDescription = "Target: 'Checking' -> 'Activity' -> 'Show all' (auto-scroll down)",
+                    targetDescription = "Target: 'Checking' Activity -> Trip Earnings & Tip Deposits with timestamps",
                     status = onePayStatus,
                     apkPath = onePayApkPath,
                     hasCustomRecipe = hasOnePayRecipe,
@@ -247,7 +360,74 @@ fun DashboardScreen(
                     buttonText = "Test OnePay Traversal",
                     onTestClick = onTestOnePay,
                     onTeachClick = onTeachOnePay,
-                    onResetRecipeClick = onResetOnePayRecipe
+                    onResetRecipeClick = onResetOnePayRecipe,
+                    extraContent = {
+                        // Discovery Buttons
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Button(
+                                onClick = onFindOnePayTripEarnings,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Find Trip Earnings", fontSize = 11.sp)
+                            }
+                            Button(
+                                onClick = onFindOnePayTipDeposits,
+                                modifier = Modifier.weight(1f),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("Find Tip Deposits", fontSize = 11.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // View Extracted Data Dialog Launchers
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = { showOnePayTripEarningsDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Trip Earnings ($tripEarningsCount)", fontSize = 11.sp)
+                            }
+                            OutlinedButton(
+                                onClick = { showOnePayTipDepositsDialog = true },
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Text("Tip Deposits ($tipDepositsCount)", fontSize = 11.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Save OnePay Results Button
+                        Button(
+                            onClick = onSaveOnePayResults,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            )
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Save OnePay Results (${onePayDeposits.size} records)")
+                        }
+                    }
                 )
             }
 
@@ -256,7 +436,7 @@ fun DashboardScreen(
                 AppCard(
                     title = "3. Google Photos",
                     defaultPackage = "com.google.android.apps.photos",
-                    targetDescription = "Target: 'Screenshots' album (reads offer cards; filters out unaccepted offers)",
+                    targetDescription = "Target: 'Screenshots' album -> scan offer cards & extract full OCR text",
                     status = photosStatus,
                     apkPath = photosApkPath,
                     hasCustomRecipe = hasPhotosRecipe,
@@ -264,7 +444,46 @@ fun DashboardScreen(
                     buttonText = "Test Photos Traversal",
                     onTestClick = onTestPhotos,
                     onTeachClick = onTeachPhotos,
-                    onResetRecipeClick = onResetPhotosRecipe
+                    onResetRecipeClick = onResetPhotosRecipe,
+                    extraContent = {
+                        // Discovery Button: Find & Extract
+                        Button(
+                            onClick = onFindAndExtractScreenshots,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Find & Extract Screenshots to Text")
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // View Extracted Screenshots Dialog Launcher
+                        OutlinedButton(
+                            onClick = { showPhotosDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("View Extracted Screenshots (${photoOffers.size})")
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        // Save Photos Results Button
+                        Button(
+                            onClick = onSavePhotosResults,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.tertiary,
+                                contentColor = MaterialTheme.colorScheme.onTertiary
+                            )
+                        ) {
+                            Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Save Photos Results (${photoOffers.size} offers)")
+                        }
+                    }
                 )
             }
 
@@ -614,7 +833,8 @@ fun AppCard(
     buttonText: String,
     onTestClick: () -> Unit,
     onTeachClick: () -> Unit = {},
-    onResetRecipeClick: (() -> Unit)? = null
+    onResetRecipeClick: (() -> Unit)? = null,
+    extraContent: @Composable ColumnScope.() -> Unit = {}
 ) {
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
@@ -753,7 +973,12 @@ fun AppCard(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // App-specific Granular Action Rows & Save Buttons
+            extraContent()
+
+            Spacer(modifier = Modifier.height(10.dp))
 
             // Dual Action Row: [ 🎥 Teach / Record ] and [ ▶️ Test Traversal ]
             Row(
@@ -1018,4 +1243,383 @@ fun DiscrepancyResultCard(discrepancy: CustomerTipDiscrepancy) {
             )
         }
     }
+}
+
+@Composable
+fun SparkTripsDialog(
+    trips: List<SparkCompletedTrip>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ListAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Spark Completed Trips (${trips.size})", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            if (trips.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No trips collected yet.\nTap 'Find Trips' on the Spark card to scan.",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(trips) { trip ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Trip #${trip.tripId}",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        "${trip.tripDate} ${trip.completedTime ?: ""}".trim(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text(trip.tripType ?: "Delivery", style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                    AssistChip(
+                                        onClick = {},
+                                        label = { Text("${trip.stopCount} ${if (trip.stopCount > 1) "Stops" else "Stop"}", style = MaterialTheme.typography.labelSmall) }
+                                    )
+                                }
+                                if (!trip.customerDropDetails.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        "Stops / Addresses: ${trip.customerDropDetails}",
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        "Offered Tip: \$${String.format("%.2f", trip.initialOfferedTip)}",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (trip.rawTotalEstimate != null) {
+                                        Text(
+                                            "Estimated Total: \$${String.format("%.2f", trip.rawTotalEstimate)}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun SparkEarningsDialog(
+    earnings: List<SparkEarningsBreakdown>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Spark Earnings Records (${earnings.size})", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            if (earnings.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No earnings records collected yet.\nTap 'Find Earnings' on the Spark card to scan.",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(earnings) { earn ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Trip #${earn.tripId}",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        "${earn.date} ${earn.timestamp ?: ""}".trim(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Base: \$${String.format("%.2f", earn.basePay)}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Tip: \$${String.format("%.2f", earn.confirmedTip)}", style = MaterialTheme.typography.bodySmall)
+                                    if (earn.extraEarnings > 0.0) {
+                                        Text("Extra: \$${String.format("%.2f", earn.extraEarnings)}", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    Text(
+                                        "Total: \$${String.format("%.2f", earn.totalEarnings)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun OnePayDepositsDialog(
+    title: String,
+    subtitle: String,
+    deposits: List<OnePayDeposit>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        title = {
+            Column {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.AccountBalance, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("$title (${deposits.size})", fontWeight = FontWeight.Bold)
+                }
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(subtitle, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+            }
+        },
+        text = {
+            if (deposits.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No deposits collected in this category.\nTap search buttons on the OnePay card to scan.",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(deposits) { dep ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        dep.referenceId,
+                                        fontWeight = FontWeight.SemiBold,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Text(
+                                        "${dep.date} ${dep.timestamp ?: ""}".trim(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        dep.sender,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        "+\$${String.format("%.2f", dep.amount)}",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF2E7D32)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun PhotosOffersDialog(
+    offers: List<PhotoOfferRecord>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Extracted Screenshots (${offers.size})", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            if (offers.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No screenshot offers extracted yet.\nTap 'Find & Extract Screenshots to Text' to scan Google Photos.",
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 500.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(offers) { offer ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Trip #${offer.tripId}",
+                                        fontWeight = FontWeight.Bold,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        "${offer.captureDate} ${offer.timestamp ?: ""}".trim(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text("Base Pay: \$${String.format("%.2f", offer.basePay)}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Offered Tip: \$${String.format("%.2f", offer.offeredTip)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                                    if (offer.estimatedTotal != null) {
+                                        Text("Total: \$${String.format("%.2f", offer.estimatedTotal)}", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                if (!offer.extractedText.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        "Extracted Text (OCR):",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Surface(
+                                        color = MaterialTheme.colorScheme.surface,
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = offer.extractedText,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    )
 }

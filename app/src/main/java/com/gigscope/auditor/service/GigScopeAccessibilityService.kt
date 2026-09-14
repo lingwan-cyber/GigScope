@@ -12,8 +12,13 @@ import java.time.LocalDate
 enum class ExecutionTarget {
     IDLE,
     TEST_SPARK,
+    SPARK_FIND_TRIPS,
+    SPARK_FIND_EARNINGS,
     TEST_ONEPAY,
+    ONEPAY_FIND_TRIP_EARNINGS,
+    ONEPAY_FIND_TIP_DEPOSITS,
     TEST_PHOTOS,
+    PHOTOS_EXTRACT_SCREENSHOTS,
     FULL_AUDIT
 }
 
@@ -24,10 +29,18 @@ class GigScopeAccessibilityService : AccessibilityService() {
             private set
 
         var activeTarget: ExecutionTarget = ExecutionTarget.IDLE
+        var queryStartDate: LocalDate = LocalDate.now().minusDays(14)
+        var queryEndDate: LocalDate = LocalDate.now()
+
         var onStatusUpdate: ((String) -> Unit)? = null
         var onSparkDataCollected: ((List<SparkCompletedTrip>, List<SparkEarningsBreakdown>) -> Unit)? = null
+        var onSparkTripsCollected: ((List<SparkCompletedTrip>) -> Unit)? = null
+        var onSparkEarningsCollected: ((List<SparkEarningsBreakdown>) -> Unit)? = null
         var onOnePayDataCollected: ((List<OnePayDeposit>) -> Unit)? = null
+        var onOnePayTripEarningsCollected: ((List<OnePayDeposit>) -> Unit)? = null
+        var onOnePayTipDepositsCollected: ((List<OnePayDeposit>) -> Unit)? = null
         var onPhotosDataCollected: ((List<PhotoOfferRecord>) -> Unit)? = null
+        var onPhotosScreenshotsExtracted: ((List<PhotoOfferRecord>) -> Unit)? = null
 
         var activeRecordingSession: RecordingSession? = null
         var activeRecipeMap: MutableMap<String, AppRecipe> = mutableMapOf()
@@ -117,11 +130,21 @@ class GigScopeAccessibilityService : AccessibilityService() {
             return
         }
 
-        // 2. Otherwise handle automated test execution
+        // 2. Otherwise handle automated execution
         when (activeTarget) {
             ExecutionTarget.TEST_SPARK -> {
                 if (packageName == "com.walmart.sparkdriver") {
                     handleSparkTraversal()
+                }
+            }
+            ExecutionTarget.SPARK_FIND_TRIPS -> {
+                if (packageName == "com.walmart.sparkdriver") {
+                    handleSparkTripsOnly()
+                }
+            }
+            ExecutionTarget.SPARK_FIND_EARNINGS -> {
+                if (packageName == "com.walmart.sparkdriver") {
+                    handleSparkEarningsOnly()
                 }
             }
             ExecutionTarget.TEST_ONEPAY -> {
@@ -129,7 +152,17 @@ class GigScopeAccessibilityService : AccessibilityService() {
                     handleOnePayTraversal()
                 }
             }
-            ExecutionTarget.TEST_PHOTOS -> {
+            ExecutionTarget.ONEPAY_FIND_TRIP_EARNINGS -> {
+                if (packageName == "com.onefinance.one") {
+                    handleOnePayTripEarningsOnly()
+                }
+            }
+            ExecutionTarget.ONEPAY_FIND_TIP_DEPOSITS -> {
+                if (packageName == "com.onefinance.one") {
+                    handleOnePayTipDepositsOnly()
+                }
+            }
+            ExecutionTarget.TEST_PHOTOS, ExecutionTarget.PHOTOS_EXTRACT_SCREENSHOTS -> {
                 if (packageName == "com.google.android.apps.photos") {
                     handlePhotosTraversal()
                 }
@@ -177,54 +210,138 @@ class GigScopeAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun handleSparkTraversal() {
-        activeTarget = ExecutionTarget.IDLE // Prevent duplicate triggering
+    private fun handleSparkTripsOnly() {
+        activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Traversing Spark: Trips & Earnings...")
+            onStatusUpdate?.invoke("Scanning Spark Trips ($queryStartDate to $queryEndDate)...")
             val root = rootInActiveWindow ?: return@launch
             val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
             val trips = sparkAutomator.navigateAndCollectTrips(
                 root = root,
-                startDate = LocalDate.now().minusDays(14),
-                endDate = LocalDate.now(),
+                startDate = queryStartDate,
+                endDate = queryEndDate,
+                customRecipe = sparkRecipe?.phases?.get("trips")
+            )
+            onSparkTripsCollected?.invoke(trips)
+            onStatusUpdate?.invoke("Found ${trips.size} Spark trips within date range")
+        }
+    }
+
+    private fun handleSparkEarningsOnly() {
+        activeTarget = ExecutionTarget.IDLE
+        serviceScope.launch {
+            onStatusUpdate?.invoke("Scanning Spark Earnings ($queryStartDate to $queryEndDate)...")
+            val root = rootInActiveWindow ?: return@launch
+            val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
+            val earnings = sparkAutomator.navigateAndCollectEarnings(
+                root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
+                targetTripIds = emptySet(),
+                customRecipe = sparkRecipe?.phases?.get("earnings")
+            )
+            onSparkEarningsCollected?.invoke(earnings)
+            onStatusUpdate?.invoke("Found ${earnings.size} Spark earnings breakdowns")
+        }
+    }
+
+    private fun handleSparkTraversal() {
+        activeTarget = ExecutionTarget.IDLE
+        serviceScope.launch {
+            onStatusUpdate?.invoke("Traversing Spark: Trips & Earnings ($queryStartDate to $queryEndDate)...")
+            val root = rootInActiveWindow ?: return@launch
+            val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
+            val trips = sparkAutomator.navigateAndCollectTrips(
+                root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
                 customRecipe = sparkRecipe?.phases?.get("trips")
             )
             val tripIds = trips.map { it.tripId }.toSet()
             val earnings = sparkAutomator.navigateAndCollectEarnings(
                 root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
                 targetTripIds = tripIds,
                 customRecipe = sparkRecipe?.phases?.get("earnings")
             )
             onSparkDataCollected?.invoke(trips, earnings)
-            onStatusUpdate?.invoke("Spark Test Complete: ${trips.size} trips collected")
+            onSparkTripsCollected?.invoke(trips)
+            onSparkEarningsCollected?.invoke(earnings)
+            onStatusUpdate?.invoke("Spark Scan Complete: ${trips.size} trips, ${earnings.size} earnings")
+        }
+    }
+
+    private fun handleOnePayTripEarningsOnly() {
+        activeTarget = ExecutionTarget.IDLE
+        serviceScope.launch {
+            onStatusUpdate?.invoke("Scanning OnePay Trip Earnings ($queryStartDate to $queryEndDate)...")
+            val root = rootInActiveWindow ?: return@launch
+            val onePayRecipe = activeRecipeMap["com.onefinance.one"]
+            val tripEarnings = onePayAutomator.collectTripEarnings(
+                root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
+                customRecipe = onePayRecipe?.phases?.get("activity")
+            )
+            onOnePayTripEarningsCollected?.invoke(tripEarnings)
+            onStatusUpdate?.invoke("Found ${tripEarnings.size} OnePay trip earnings deposits")
+        }
+    }
+
+    private fun handleOnePayTipDepositsOnly() {
+        activeTarget = ExecutionTarget.IDLE
+        serviceScope.launch {
+            onStatusUpdate?.invoke("Scanning OnePay Tip Deposits ($queryStartDate to $queryEndDate)...")
+            val root = rootInActiveWindow ?: return@launch
+            val onePayRecipe = activeRecipeMap["com.onefinance.one"]
+            val tipDeposits = onePayAutomator.collectTipDeposits(
+                root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
+                customRecipe = onePayRecipe?.phases?.get("activity")
+            )
+            onOnePayTipDepositsCollected?.invoke(tipDeposits)
+            onStatusUpdate?.invoke("Found ${tipDeposits.size} OnePay tip deposits")
         }
     }
 
     private fun handleOnePayTraversal() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Traversing OnePay: Checking Activity...")
+            onStatusUpdate?.invoke("Traversing OnePay Activity ($queryStartDate to $queryEndDate)...")
             val root = rootInActiveWindow ?: return@launch
             val onePayRecipe = activeRecipeMap["com.onefinance.one"]
             val deposits = onePayAutomator.collectDeposits(
                 root = root,
-                startDate = LocalDate.now().minusDays(14),
-                endDate = LocalDate.now(),
+                startDate = queryStartDate,
+                endDate = queryEndDate,
                 customRecipe = onePayRecipe?.phases?.get("activity")
             )
             onOnePayDataCollected?.invoke(deposits)
-            onStatusUpdate?.invoke("OnePay Test Complete: ${deposits.size} deposits collected")
+            val tripEarnings = deposits.filter { it.transactionType == OnePayTransactionType.TRIP_EARNING }
+            val tipDeposits = deposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
+            onOnePayTripEarningsCollected?.invoke(tripEarnings)
+            onOnePayTipDepositsCollected?.invoke(tipDeposits)
+            onStatusUpdate?.invoke("OnePay Complete: ${deposits.size} total deposits (${tripEarnings.size} trip earnings, ${tipDeposits.size} tips)")
         }
     }
 
     private fun handlePhotosTraversal() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Traversing Google Photos: Screenshots...")
+            onStatusUpdate?.invoke("Scanning Google Photos: Screenshots ($queryStartDate to $queryEndDate)...")
             val root = rootInActiveWindow ?: return@launch
-            val offers = photosAutomator.collectScreenshotOffers(root, LocalDate.now().minusDays(14), LocalDate.now())
+            val photosRecipe = activeRecipeMap["com.google.android.apps.photos"]
+            val offers = photosAutomator.collectScreenshotOffers(
+                root = root,
+                startDate = queryStartDate,
+                endDate = queryEndDate,
+                customRecipe = photosRecipe?.phases?.get("screenshots")
+            )
             onPhotosDataCollected?.invoke(offers)
-            onStatusUpdate?.invoke("Photos Test Complete: ${offers.size} offers scanned")
+            onPhotosScreenshotsExtracted?.invoke(offers)
+            onStatusUpdate?.invoke("Photos Complete: ${offers.size} screenshot offers extracted")
         }
     }
 
