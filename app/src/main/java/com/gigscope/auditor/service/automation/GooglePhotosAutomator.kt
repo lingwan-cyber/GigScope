@@ -25,12 +25,14 @@ class GooglePhotosAutomator(private val actionHelper: AccessibilityActionHelper)
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
+            actionHelper.updateActionState("Opening Library / Albums", "Select Screenshots folder")
             actionHelper.findAndClickByText(root, listOf("Library", "Albums", "Collections"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Select Screenshots folder")
 
             val activeWindow = actionHelper.getActiveWindowRoot() ?: return rawOffers
+            actionHelper.updateActionState("Opening Screenshots folder", "Scan trip screenshots")
             actionHelper.findAndClickByText(activeWindow, listOf("Screenshots", "Screens"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan trip screenshots")
         }
 
         // 2. Autonomous Scroll & extract screenshot offer details
@@ -38,6 +40,10 @@ class GooglePhotosAutomator(private val actionHelper: AccessibilityActionHelper)
         val maxScrolls = 20
 
         while (scrollCount < maxScrolls) {
+            actionHelper.updateActionState(
+                "Scanning Photos (extracted ${rawOffers.size} offers, scroll $scrollCount/$maxScrolls)",
+                if (scrollCount + 1 < maxScrolls) "Scroll down album" else "Finish scan"
+            )
             val current = actionHelper.getActiveWindowRoot() ?: break
             val textDump = StringBuilder()
             HierarchyCrawler.findNodesByRegex(current, Regex(".*")).forEach {
@@ -71,10 +77,14 @@ class GooglePhotosAutomator(private val actionHelper: AccessibilityActionHelper)
                 }
             }
 
+            actionHelper.updateActionState(
+                "Scrolling Photos album (${scrollCount + 1}/$maxScrolls)",
+                "Scan next photos"
+            )
             val scrolled = actionHelper.performScrollForward(current)
             if (!scrolled) break
             scrollCount++
-            actionHelper.waitForUiStabilization(400)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan next photos")
         }
 
         return rawOffers

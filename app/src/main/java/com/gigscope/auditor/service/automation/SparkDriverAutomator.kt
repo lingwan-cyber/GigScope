@@ -30,8 +30,9 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
+            actionHelper.updateActionState("Opening Trips tab", "Scan trip cards")
             actionHelper.findAndClickByText(root, listOf("Trips", "Trip History", "Completed Trips"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan trip cards")
         }
 
         // 2. Autonomous Scroll & extract loop (continues scrolling until startDate is reached)
@@ -40,6 +41,10 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         val maxScrolls = 25
 
         while (!reachedPastStartDate && scrollAttempts < maxScrolls) {
+            actionHelper.updateActionState(
+                "Scanning Trips (found ${collectedTrips.size}, scroll $scrollAttempts/$maxScrolls)",
+                if (scrollAttempts + 1 < maxScrolls) "Scroll down list" else "Finish scan"
+            )
             val currentWindow = actionHelper.getActiveWindowRoot() ?: break
             val tripIdNodes = actionHelper.findNodesByPattern(currentWindow, tripIdRegex)
 
@@ -57,10 +62,14 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
             }
 
             if (!reachedPastStartDate) {
+                actionHelper.updateActionState(
+                    "Scrolling Trips list (${scrollAttempts + 1}/$maxScrolls)",
+                    "Scan next trip cards"
+                )
                 val scrolled = actionHelper.performScrollForward(currentWindow)
                 if (!scrolled) break
                 scrollAttempts++
-                actionHelper.waitForUiStabilization(400)
+                actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan next trip cards")
             }
         }
         return collectedTrips
@@ -77,8 +86,9 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
+            actionHelper.updateActionState("Opening Earnings tab", "Scan earnings cards")
             actionHelper.findAndClickByText(root, listOf("Earnings", "Earnings History"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan earnings cards")
         }
 
         val earningsList = mutableListOf<SparkEarningsBreakdown>()
@@ -87,6 +97,10 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
         val maxScrolls = 25
 
         while (!reachedPastStartDate && scrollAttempts < maxScrolls) {
+            actionHelper.updateActionState(
+                "Scanning Earnings (found ${earningsList.size}, scroll $scrollAttempts/$maxScrolls)",
+                if (scrollAttempts + 1 < maxScrolls) "Scroll down list" else "Finish scan"
+            )
             val currentWindow = actionHelper.getActiveWindowRoot() ?: break
             val tripNodes = actionHelper.findNodesByPattern(currentWindow, tripIdRegex)
 
@@ -106,10 +120,14 @@ class SparkDriverAutomator(private val actionHelper: AccessibilityActionHelper) 
             }
 
             if (!reachedPastStartDate) {
+                actionHelper.updateActionState(
+                    "Scrolling Earnings list (${scrollAttempts + 1}/$maxScrolls)",
+                    "Scan next earnings cards"
+                )
                 val scrolled = actionHelper.performScrollForward(currentWindow)
                 if (!scrolled) break
                 scrollAttempts++
-                actionHelper.waitForUiStabilization(400)
+                actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan next earnings cards")
             }
         }
 

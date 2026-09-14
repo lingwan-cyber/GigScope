@@ -91,10 +91,24 @@ class GigScopeAccessibilityService : AccessibilityService() {
     }
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var activeJob: Job? = null
     private lateinit var actionHelper: AccessibilityActionHelper
     private lateinit var sparkAutomator: SparkDriverAutomator
     private lateinit var onePayAutomator: OnePayAutomator
     private lateinit var photosAutomator: GooglePhotosAutomator
+
+    fun abortCurrentOperation() {
+        activeJob?.cancel()
+        activeJob = null
+        if (activeRecordingSession != null) {
+            cancelRecording()
+        }
+        activeTarget = ExecutionTarget.IDLE
+        FloatingHudService.updateActionDetails("Aborted", null)
+        FloatingHudService.updateCountdown(null)
+        FloatingHudService.stop(this)
+        onStatusUpdate?.invoke("Operation aborted by user")
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -112,11 +126,10 @@ class GigScopeAccessibilityService : AccessibilityService() {
             FloatingHudService.stop(this)
         }
         FloatingHudService.onCancelRequested = {
-            if (activeRecordingSession != null) {
-                cancelRecording()
-            }
-            activeTarget = ExecutionTarget.IDLE
-            FloatingHudService.stop(this)
+            abortCurrentOperation()
+        }
+        FloatingHudService.onAbortRequested = {
+            abortCurrentOperation()
         }
 
         onStatusUpdate?.invoke("Accessibility Service Connected & Ready")
@@ -241,178 +254,213 @@ class GigScopeAccessibilityService : AccessibilityService() {
 
     private fun handleSparkTripsOnly() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Scanning Spark Trips ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ Spark: Trips Scan", "Filtering $queryStartDate to $queryEndDate")
-            val root = rootInActiveWindow ?: return@launch
-            val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
-            val trips = sparkAutomator.navigateAndCollectTrips(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = sparkRecipe?.phases?.get("trips")
-            )
-            onSparkTripsCollected?.invoke(trips)
-            val doneMsg = "Found ${trips.size} Spark trips within date range"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ Spark Trips Complete", "Extracted ${trips.size} trips")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Scanning Spark Trips ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ Spark: Trips Scan", "Filtering $queryStartDate to $queryEndDate")
+                val root = rootInActiveWindow ?: return@launch
+                val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
+                val trips = sparkAutomator.navigateAndCollectTrips(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = sparkRecipe?.phases?.get("trips")
+                )
+                onSparkTripsCollected?.invoke(trips)
+                val doneMsg = "Found ${trips.size} Spark trips within date range"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ Spark Trips Complete", "Extracted ${trips.size} trips")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("Spark Trips scan stopped")
+            }
         }
     }
 
     private fun handleSparkEarningsOnly() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Scanning Spark Earnings ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ Spark: Earnings Scan", "Filtering $queryStartDate to $queryEndDate")
-            val root = rootInActiveWindow ?: return@launch
-            val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
-            val earnings = sparkAutomator.navigateAndCollectEarnings(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                targetTripIds = emptySet(),
-                customRecipe = sparkRecipe?.phases?.get("earnings")
-            )
-            onSparkEarningsCollected?.invoke(earnings)
-            val doneMsg = "Found ${earnings.size} Spark earnings breakdowns"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ Spark Earnings Complete", "Extracted ${earnings.size} earnings")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Scanning Spark Earnings ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ Spark: Earnings Scan", "Filtering $queryStartDate to $queryEndDate")
+                val root = rootInActiveWindow ?: return@launch
+                val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
+                val earnings = sparkAutomator.navigateAndCollectEarnings(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    targetTripIds = emptySet(),
+                    customRecipe = sparkRecipe?.phases?.get("earnings")
+                )
+                onSparkEarningsCollected?.invoke(earnings)
+                val doneMsg = "Found ${earnings.size} Spark earnings breakdowns"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ Spark Earnings Complete", "Extracted ${earnings.size} earnings")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("Spark Earnings scan stopped")
+            }
         }
     }
 
     private fun handleSparkTraversal() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Traversing Spark: Trips & Earnings ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ Spark Full Scan", "Trips & Earnings...")
-            val root = rootInActiveWindow ?: return@launch
-            val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
-            val trips = sparkAutomator.navigateAndCollectTrips(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = sparkRecipe?.phases?.get("trips")
-            )
-            val tripIds = trips.map { it.tripId }.toSet()
-            val earnings = sparkAutomator.navigateAndCollectEarnings(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                targetTripIds = tripIds,
-                customRecipe = sparkRecipe?.phases?.get("earnings")
-            )
-            onSparkDataCollected?.invoke(trips, earnings)
-            onSparkTripsCollected?.invoke(trips)
-            onSparkEarningsCollected?.invoke(earnings)
-            val doneMsg = "Spark Scan Complete: ${trips.size} trips, ${earnings.size} earnings"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ Spark Complete", "${trips.size} trips, ${earnings.size} earnings")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Traversing Spark: Trips & Earnings ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ Spark Full Scan", "Trips & Earnings...")
+                val root = rootInActiveWindow ?: return@launch
+                val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
+                val trips = sparkAutomator.navigateAndCollectTrips(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = sparkRecipe?.phases?.get("trips")
+                )
+                val tripIds = trips.map { it.tripId }.toSet()
+                val earnings = sparkAutomator.navigateAndCollectEarnings(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    targetTripIds = tripIds,
+                    customRecipe = sparkRecipe?.phases?.get("earnings")
+                )
+                onSparkDataCollected?.invoke(trips, earnings)
+                onSparkTripsCollected?.invoke(trips)
+                onSparkEarningsCollected?.invoke(earnings)
+                val doneMsg = "Spark Scan Complete: ${trips.size} trips, ${earnings.size} earnings"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ Spark Complete", "${trips.size} trips, ${earnings.size} earnings")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("Spark Full Scan stopped")
+            }
         }
     }
 
     private fun handleOnePayTripEarningsOnly() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Scanning OnePay Trip Earnings ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ OnePay: Trip Earnings", "Filtering $queryStartDate to $queryEndDate")
-            val root = rootInActiveWindow ?: return@launch
-            val onePayRecipe = activeRecipeMap["com.onefinance.one"]
-            val tripEarnings = onePayAutomator.collectTripEarnings(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = onePayRecipe?.phases?.get("activity")
-            )
-            onOnePayTripEarningsCollected?.invoke(tripEarnings)
-            val doneMsg = "Found ${tripEarnings.size} OnePay trip earnings deposits"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ OnePay Earnings Complete", "Extracted ${tripEarnings.size} deposits")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Scanning OnePay Trip Earnings ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ OnePay: Trip Earnings", "Filtering $queryStartDate to $queryEndDate")
+                val root = rootInActiveWindow ?: return@launch
+                val onePayRecipe = activeRecipeMap["com.onefinance.one"]
+                val tripEarnings = onePayAutomator.collectTripEarnings(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = onePayRecipe?.phases?.get("activity")
+                )
+                onOnePayTripEarningsCollected?.invoke(tripEarnings)
+                val doneMsg = "Found ${tripEarnings.size} OnePay trip earnings deposits"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ OnePay Earnings Complete", "Extracted ${tripEarnings.size} deposits")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("OnePay Trip Earnings scan stopped")
+            }
         }
     }
 
     private fun handleOnePayTipDepositsOnly() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Scanning OnePay Tip Deposits ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ OnePay: Tip Deposits", "Filtering $queryStartDate to $queryEndDate")
-            val root = rootInActiveWindow ?: return@launch
-            val onePayRecipe = activeRecipeMap["com.onefinance.one"]
-            val tipDeposits = onePayAutomator.collectTipDeposits(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = onePayRecipe?.phases?.get("activity")
-            )
-            onOnePayTipDepositsCollected?.invoke(tipDeposits)
-            val doneMsg = "Found ${tipDeposits.size} OnePay tip deposits"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ OnePay Tips Complete", "Extracted ${tipDeposits.size} deposits")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Scanning OnePay Tip Deposits ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ OnePay: Tip Deposits", "Filtering $queryStartDate to $queryEndDate")
+                val root = rootInActiveWindow ?: return@launch
+                val onePayRecipe = activeRecipeMap["com.onefinance.one"]
+                val tipDeposits = onePayAutomator.collectTipDeposits(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = onePayRecipe?.phases?.get("activity")
+                )
+                onOnePayTipDepositsCollected?.invoke(tipDeposits)
+                val doneMsg = "Found ${tipDeposits.size} OnePay tip deposits"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ OnePay Tips Complete", "Extracted ${tipDeposits.size} deposits")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("OnePay Tip Deposits scan stopped")
+            }
         }
     }
 
     private fun handleOnePayTraversal() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Traversing OnePay Activity ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ OnePay Full Scan", "Filtering $queryStartDate to $queryEndDate")
-            val root = rootInActiveWindow ?: return@launch
-            val onePayRecipe = activeRecipeMap["com.onefinance.one"]
-            val deposits = onePayAutomator.collectDeposits(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = onePayRecipe?.phases?.get("activity")
-            )
-            onOnePayDataCollected?.invoke(deposits)
-            val tripEarnings = deposits.filter { it.transactionType == OnePayTransactionType.TRIP_EARNING }
-            val tipDeposits = deposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
-            onOnePayTripEarningsCollected?.invoke(tripEarnings)
-            onOnePayTipDepositsCollected?.invoke(tipDeposits)
-            val doneMsg = "OnePay Complete: ${deposits.size} total deposits (${tripEarnings.size} trip earnings, ${tipDeposits.size} tips)"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ OnePay Complete", "${deposits.size} deposits total")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Traversing OnePay Activity ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ OnePay Full Scan", "Filtering $queryStartDate to $queryEndDate")
+                val root = rootInActiveWindow ?: return@launch
+                val onePayRecipe = activeRecipeMap["com.onefinance.one"]
+                val deposits = onePayAutomator.collectDeposits(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = onePayRecipe?.phases?.get("activity")
+                )
+                onOnePayDataCollected?.invoke(deposits)
+                val tripEarnings = deposits.filter { it.transactionType == OnePayTransactionType.TRIP_EARNING }
+                val tipDeposits = deposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
+                onOnePayTripEarningsCollected?.invoke(tripEarnings)
+                onOnePayTipDepositsCollected?.invoke(tipDeposits)
+                val doneMsg = "OnePay Complete: ${deposits.size} total deposits (${tripEarnings.size} trip earnings, ${tipDeposits.size} tips)"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ OnePay Complete", "${deposits.size} deposits total")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("OnePay Full Scan stopped")
+            }
         }
     }
 
     private fun handlePhotosTraversal() {
         activeTarget = ExecutionTarget.IDLE
-        serviceScope.launch {
-            val msg = "Scanning Google Photos: Screenshots ($queryStartDate to $queryEndDate)..."
-            onStatusUpdate?.invoke(msg)
-            FloatingHudService.showStatus(msg)
-            FloatingHudService.updateHud("⚡ Google Photos Scan", "Extracting trip screenshots...")
-            val root = rootInActiveWindow ?: return@launch
-            val photosRecipe = activeRecipeMap["com.google.android.apps.photos"]
-            val offers = photosAutomator.collectScreenshotOffers(
-                root = root,
-                startDate = queryStartDate,
-                endDate = queryEndDate,
-                customRecipe = photosRecipe?.phases?.get("screenshots")
-            )
-            onPhotosDataCollected?.invoke(offers)
-            onPhotosScreenshotsExtracted?.invoke(offers)
-            val doneMsg = "Photos Complete: ${offers.size} screenshot offers extracted"
-            onStatusUpdate?.invoke(doneMsg)
-            FloatingHudService.showStatus(doneMsg, 2500L)
-            FloatingHudService.updateHud("✅ Photos Complete", "${offers.size} offers extracted")
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            try {
+                val msg = "Scanning Google Photos: Screenshots ($queryStartDate to $queryEndDate)..."
+                onStatusUpdate?.invoke(msg)
+                FloatingHudService.showStatus(msg)
+                FloatingHudService.updateHud("⚡ Google Photos Scan", "Extracting trip screenshots...")
+                val root = rootInActiveWindow ?: return@launch
+                val photosRecipe = activeRecipeMap["com.google.android.apps.photos"]
+                val offers = photosAutomator.collectScreenshotOffers(
+                    root = root,
+                    startDate = queryStartDate,
+                    endDate = queryEndDate,
+                    customRecipe = photosRecipe?.phases?.get("screenshots")
+                )
+                onPhotosDataCollected?.invoke(offers)
+                onPhotosScreenshotsExtracted?.invoke(offers)
+                val doneMsg = "Photos Complete: ${offers.size} screenshot offers extracted"
+                onStatusUpdate?.invoke(doneMsg)
+                FloatingHudService.showStatus(doneMsg, 2500L)
+                FloatingHudService.updateHud("✅ Photos Complete", "${offers.size} offers extracted")
+            } catch (e: CancellationException) {
+                onStatusUpdate?.invoke("Photos Scan stopped")
+            }
         }
     }
 

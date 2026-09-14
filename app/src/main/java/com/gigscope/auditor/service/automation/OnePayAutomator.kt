@@ -25,12 +25,14 @@ class OnePayAutomator(private val actionHelper: AccessibilityActionHelper) {
         if (customRecipe != null && customRecipe.steps.isNotEmpty()) {
             actionHelper.executeRecordedNavigation(root, customRecipe.steps)
         } else {
+            actionHelper.updateActionState("Opening Checking tab", "Open transaction activity")
             actionHelper.findAndClickByText(root, listOf("Checking", "One Checking", "Spend"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Open transaction activity")
 
             val currentWindow = actionHelper.getActiveWindowRoot() ?: return deposits
+            actionHelper.updateActionState("Opening Activity list", "Scan deposits")
             actionHelper.findAndClickByText(currentWindow, listOf("Show all", "View all", "See all activity", "Activity"))
-            actionHelper.waitForUiStabilization(500)
+            actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan deposits")
         }
 
         // Scroll down pagination loop
@@ -39,6 +41,10 @@ class OnePayAutomator(private val actionHelper: AccessibilityActionHelper) {
         val maxScrolls = 30
 
         while (!reachedOlderDate && scrollCount < maxScrolls) {
+            actionHelper.updateActionState(
+                "Scanning OnePay (found ${deposits.size}, scroll $scrollCount/$maxScrolls)",
+                if (scrollCount + 1 < maxScrolls) "Scroll down list" else "Finish scan"
+            )
             val window = actionHelper.getActiveWindowRoot() ?: break
             val txNodes = actionHelper.findNodesByPattern(window, sparkPayerRegex)
 
@@ -57,10 +63,14 @@ class OnePayAutomator(private val actionHelper: AccessibilityActionHelper) {
             }
 
             if (!reachedOlderDate) {
+                actionHelper.updateActionState(
+                    "Scrolling OnePay list (${scrollCount + 1}/$maxScrolls)",
+                    "Scan next transactions"
+                )
                 val scrollSuccess = actionHelper.performScrollForward(window)
                 if (!scrollSuccess) break
                 scrollCount++
-                actionHelper.waitForUiStabilization(400)
+                actionHelper.waitForUiStabilization(actionHelper.getStabilizationDelay(), "Scan next transactions")
             }
         }
 

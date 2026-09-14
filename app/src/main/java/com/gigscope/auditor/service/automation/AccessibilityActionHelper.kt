@@ -37,8 +37,35 @@ class AccessibilityActionHelper(
         }
     }
 
-    suspend fun waitForUiStabilization(timeoutMs: Long = getStabilizationDelay()) {
-        delay(timeoutMs)
+    var lastCurrentAction: String = "Idle"
+    var lastNextAction: String? = null
+
+    fun updateActionState(current: String, next: String? = null) {
+        lastCurrentAction = current
+        lastNextAction = next
+        FloatingHudService.updateActionDetails(current, next)
+    }
+
+    suspend fun waitForUiStabilization(timeoutMs: Long = getStabilizationDelay(), nextActionLabel: String? = null) {
+        if (nextActionLabel != null) {
+            updateActionState(lastCurrentAction, nextActionLabel)
+        }
+        if (FloatingHudService.currentSpeed == "Fast" || timeoutMs <= 300L) {
+            FloatingHudService.updateCountdown(null)
+            delay(timeoutMs)
+            return
+        }
+
+        val startTime = System.currentTimeMillis()
+        var elapsed = 0L
+        while (elapsed < timeoutMs) {
+            val remainingSec = (timeoutMs - elapsed) / 1000.0f
+            FloatingHudService.updateCountdown(String.format(java.util.Locale.US, "⏳ Next in %.1fs...", remainingSec))
+            val stepDelay = minOf(100L, timeoutMs - elapsed)
+            delay(stepDelay)
+            elapsed = System.currentTimeMillis() - startTime
+        }
+        FloatingHudService.updateCountdown(null)
     }
 
     suspend fun dispatchClick(x: Float, y: Float, durationMs: Long = 100L): Boolean {
@@ -193,6 +220,9 @@ class AccessibilityActionHelper(
         FloatingHudService.onCancelRequested = {
             stepDeferred.complete(false)
         }
+        FloatingHudService.onAbortRequested = {
+            stepDeferred.complete(false)
+        }
 
         val confirmed = stepDeferred.await()
         FloatingHudService.clearStepConfirmation()
@@ -208,6 +238,28 @@ class AccessibilityActionHelper(
 
         for ((index, step) in steps.withIndex()) {
             val stepNum = index + 1
+            val nextStep = steps.getOrNull(index + 1)
+            val currentDesc = when (step.actionType) {
+                com.gigscope.auditor.domain.model.ActionType.CLICK ->
+                    "Tap: " + (step.targetText ?: step.contentDescription ?: "Step #$stepNum")
+                com.gigscope.auditor.domain.model.ActionType.SCROLL_CONTAINER ->
+                    "Scroll container"
+                com.gigscope.auditor.domain.model.ActionType.WAIT ->
+                    "Wait for screen update"
+            }
+            val nextDesc = nextStep?.let { ns ->
+                when (ns.actionType) {
+                    com.gigscope.auditor.domain.model.ActionType.CLICK ->
+                        "Tap: " + (ns.targetText ?: ns.contentDescription ?: "Step #${index + 2}")
+                    com.gigscope.auditor.domain.model.ActionType.SCROLL_CONTAINER ->
+                        "Scroll container"
+                    com.gigscope.auditor.domain.model.ActionType.WAIT ->
+                        "Wait for screen update"
+                }
+            } ?: "Data extraction / Finish"
+
+            updateActionState("Step $stepNum/$total: $currentDesc", nextDesc)
+
             when (step.actionType) {
                 com.gigscope.auditor.domain.model.ActionType.CLICK -> {
                     val desc = step.targetText ?: step.contentDescription ?: "Tap (#${stepNum})"
@@ -218,17 +270,17 @@ class AccessibilityActionHelper(
                     if (!confirmed) return false
 
                     val clicked = clickRecordedStep(currentWindowRoot, step)
-                    waitForUiStabilization(getStabilizationDelay())
+                    waitForUiStabilization(getStabilizationDelay(), nextDesc)
                     currentWindowRoot = getActiveWindowRoot() ?: currentWindowRoot
                 }
                 com.gigscope.auditor.domain.model.ActionType.WAIT -> {
-                    waitForUiStabilization(getStabilizationDelay())
+                    waitForUiStabilization(getStabilizationDelay(), nextDesc)
                 }
                 com.gigscope.auditor.domain.model.ActionType.SCROLL_CONTAINER -> {
                     val confirmed = awaitStepConfirmation("Scroll Container", stepNum, total)
                     if (!confirmed) return false
                     performScrollForward(currentWindowRoot)
-                    waitForUiStabilization(getStabilizationDelay())
+                    waitForUiStabilization(getStabilizationDelay(), nextDesc)
                     currentWindowRoot = getActiveWindowRoot() ?: currentWindowRoot
                 }
             }

@@ -33,6 +33,7 @@ class FloatingHudService : Service() {
         var onFinishRequested: (() -> Unit)? = null
         var onCancelRequested: (() -> Unit)? = null
 
+        var onAbortRequested: (() -> Unit)? = null
         var onStepConfirmed: (() -> Unit)? = null
         var onAutoRunRequested: (() -> Unit)? = null
         var onSpeedChanged: ((String) -> Unit)? = null
@@ -63,6 +64,7 @@ class FloatingHudService : Service() {
         fun stop(context: Context) {
             runOnMain {
                 try {
+                    instance?.cleanupAndRemoveViews()
                     val intent = Intent(context, FloatingHudService::class.java)
                     context.stopService(intent)
                 } catch (e: Exception) {
@@ -74,6 +76,18 @@ class FloatingHudService : Service() {
         fun updateHud(title: String, subtitle: String, isSparkPhase1: Boolean = false) {
             runOnMain {
                 instance?.updateContent(title, subtitle, isSparkPhase1)
+            }
+        }
+
+        fun updateActionDetails(current: String, next: String?) {
+            runOnMain {
+                instance?.displayActionDetails(current, next)
+            }
+        }
+
+        fun updateCountdown(countdownText: String?) {
+            runOnMain {
+                instance?.displayCountdown(countdownText)
             }
         }
 
@@ -115,6 +129,12 @@ class FloatingHudService : Service() {
     private var titleView: TextView? = null
     private var subtitleView: TextView? = null
     private var speedButton: Button? = null
+    private var abortButton: Button? = null
+
+    // Action Details & Countdown Views
+    private var currentActionView: TextView? = null
+    private var nextActionView: TextView? = null
+    private var countdownView: TextView? = null
 
     // Record Mode Buttons
     private var nextButton: Button? = null
@@ -217,14 +237,14 @@ class FloatingHudService : Service() {
     }
 
     private fun buildAutomationHud() {
-        // Top row: Title + Speed button
+        // Top row: Title + Speed button + Abort Button
         val topRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
 
         val title = TextView(this).apply {
-            text = "⚡ GigScope Automation"
+            text = "⚡ GigScope"
             setTextColor(Color.parseColor("#00E5FF")) // Bright Cyan
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
@@ -233,7 +253,7 @@ class FloatingHudService : Service() {
         topRow.addView(title)
 
         val spacer = View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(16), 0)
+            layoutParams = LinearLayout.LayoutParams(0, 0, 1f)
         }
         topRow.addView(spacer)
 
@@ -242,8 +262,12 @@ class FloatingHudService : Service() {
             text = "Speed: $currentSpeed"
             textSize = 10f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#37474F"))
-            setPadding(dp(6), dp(0), dp(6), dp(0))
+            val btnBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#37474F"))
+                cornerRadius = dp(6).toFloat()
+            }
+            background = btnBg
+            setPadding(dp(8), dp(2), dp(8), dp(2))
             setOnClickListener {
                 currentSpeed = when (currentSpeed) {
                     "Fast" -> "Normal"
@@ -253,28 +277,127 @@ class FloatingHudService : Service() {
                 }
                 text = "Speed: $currentSpeed"
                 onSpeedChanged?.invoke(currentSpeed)
+                if (currentSpeed == "Fast") {
+                    displayCountdown(null)
+                }
             }
         }
         speedButton = btnSpeed
         topRow.addView(btnSpeed)
+
+        val spacer2 = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(8), 0)
+        }
+        topRow.addView(spacer2)
+
+        // Persistent Abort Button: Stops operation and removes overlay
+        val btnAbort = Button(this).apply {
+            text = "⏹️ Abort"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setTypeface(null, Typeface.BOLD)
+            val abortBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#C62828")) // Crimson Red
+                cornerRadius = dp(6).toFloat()
+            }
+            background = abortBg
+            setPadding(dp(8), dp(2), dp(8), dp(2))
+            setOnClickListener {
+                onAbortRequested?.invoke()
+                onCancelRequested?.invoke()
+                stop(this@FloatingHudService)
+            }
+        }
+        abortButton = btnAbort
+        topRow.addView(btnAbort)
 
         hudContainer?.addView(topRow)
 
         // Subtitle status line
         val subtitle = TextView(this).apply {
             text = "Active traversal & inspection..."
-            setTextColor(Color.parseColor("#E0E0E0"))
+            setTextColor(Color.parseColor("#B0BEC5"))
             textSize = 11f
-            setPadding(0, dp(2), 0, dp(4))
+            setPadding(0, dp(4), 0, dp(2))
         }
         subtitleView = subtitle
         hudContainer?.addView(subtitle)
+
+        // Action Details Card (Current, Next, and Countdown)
+        val actionCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val cardBg = GradientDrawable().apply {
+                setColor(Color.parseColor("#E6181818"))
+                cornerRadius = dp(8).toFloat()
+                setStroke(dp(1), Color.parseColor("#33FFFFFF"))
+            }
+            background = cardBg
+            setPadding(dp(10), dp(6), dp(10), dp(6))
+        }
+
+        // Current Action Row
+        val currentRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val currentLabel = TextView(this).apply {
+            text = "▶ Current: "
+            setTextColor(Color.parseColor("#00E5FF"))
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+        }
+        val currentVal = TextView(this).apply {
+            text = "Starting..."
+            setTextColor(Color.WHITE)
+            textSize = 11f
+            maxLines = 2
+        }
+        currentActionView = currentVal
+        currentRow.addView(currentLabel)
+        currentRow.addView(currentVal)
+        actionCard.addView(currentRow)
+
+        // Next Action Row
+        val nextRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, 0)
+        }
+        val nextLabel = TextView(this).apply {
+            text = "⏭ Next:    "
+            setTextColor(Color.parseColor("#FFB74D"))
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+        }
+        val nextVal = TextView(this).apply {
+            text = "Initializing"
+            setTextColor(Color.parseColor("#E0E0E0"))
+            textSize = 11f
+            maxLines = 2
+        }
+        nextActionView = nextVal
+        nextRow.addView(nextLabel)
+        nextRow.addView(nextVal)
+        actionCard.addView(nextRow)
+
+        // Countdown Row
+        val countdown = TextView(this).apply {
+            text = if (currentSpeed == "Fast") "⚡ Running at full speed" else "⏳ Next action..."
+            setTextColor(Color.parseColor(if (currentSpeed == "Fast") "#80DEEA" else "#FFEB3B"))
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+            setPadding(0, dp(4), 0, 0)
+        }
+        countdownView = countdown
+        actionCard.addView(countdown)
+
+        hudContainer?.addView(actionCard)
 
         // Step Confirmation Container (Hidden by default, shown when step-by-step confirmation is needed)
         val stepContainer = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             visibility = View.GONE
-            setPadding(0, dp(4), 0, 0)
+            setPadding(0, dp(6), 0, 0)
         }
 
         val stepDesc = TextView(this).apply {
@@ -316,17 +439,23 @@ class FloatingHudService : Service() {
         }
         stepButtonRow.addView(btnAuto)
 
-        val btnStop = Button(this).apply {
-            text = "⏹️ Stop"
+        val btnStopStep = Button(this).apply {
+            text = "⏹️ Abort & Close"
             textSize = 11f
-            setTextColor(Color.parseColor("#FF8A80"))
-            setBackgroundColor(Color.TRANSPARENT)
+            setTextColor(Color.WHITE)
+            val bg = GradientDrawable().apply {
+                setColor(Color.parseColor("#C62828"))
+                cornerRadius = dp(4).toFloat()
+            }
+            background = bg
             setPadding(dp(8), dp(0), dp(8), dp(0))
             setOnClickListener {
+                onAbortRequested?.invoke()
                 onCancelRequested?.invoke()
+                stop(this@FloatingHudService)
             }
         }
-        stepButtonRow.addView(btnStop)
+        stepButtonRow.addView(btnStopStep)
 
         stepContainer.addView(stepButtonRow)
         stepConfirmationContainer = stepContainer
@@ -392,6 +521,8 @@ class FloatingHudService : Service() {
             setPadding(dp(8), dp(2), dp(8), dp(2))
             setOnClickListener {
                 onCancelRequested?.invoke()
+                onAbortRequested?.invoke()
+                stop(this@FloatingHudService)
             }
         }
         cancelButton = btnCancel
@@ -459,22 +590,52 @@ class FloatingHudService : Service() {
         }
     }
 
+    fun displayActionDetails(current: String, next: String?) {
+        runOnMain {
+            currentActionView?.text = current
+            nextActionView?.text = next ?: "None"
+        }
+    }
+
+    fun displayCountdown(countdownText: String?) {
+        runOnMain {
+            if (countdownText.isNullOrBlank()) {
+                if (currentSpeed == "Fast") {
+                    countdownView?.visibility = View.VISIBLE
+                    countdownView?.text = "⚡ Running at full speed"
+                    countdownView?.setTextColor(Color.parseColor("#80DEEA"))
+                } else {
+                    countdownView?.visibility = View.GONE
+                }
+            } else {
+                countdownView?.visibility = View.VISIBLE
+                countdownView?.text = countdownText
+                countdownView?.setTextColor(Color.parseColor("#FFEB3B"))
+            }
+        }
+    }
+
+    fun cleanupAndRemoveViews() {
+        try {
+            hudContainer?.let { windowManager?.removeView(it) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        hudContainer = null
+        try {
+            visualizerOverlay?.clear()
+            visualizerOverlay?.let { windowManager?.removeView(it) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        visualizerOverlay = null
+        instance = null
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         runOnMain {
-            try {
-                hudContainer?.let { windowManager?.removeView(it) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            hudContainer = null
-            try {
-                visualizerOverlay?.let { windowManager?.removeView(it) }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            visualizerOverlay = null
-            instance = null
+            cleanupAndRemoveViews()
         }
     }
 }
