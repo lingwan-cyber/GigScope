@@ -37,40 +37,74 @@ class FloatingHudService : Service() {
         var onAutoRunRequested: (() -> Unit)? = null
         var onSpeedChanged: ((String) -> Unit)? = null
 
-        fun start(context: Context, mode: String = MODE_TEST) {
-            val intent = Intent(context, FloatingHudService::class.java).apply {
-                putExtra(EXTRA_MODE, mode)
+        private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+        fun runOnMain(block: () -> Unit) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+                block()
+            } else {
+                mainHandler.post(block)
             }
-            context.startService(intent)
+        }
+
+        fun start(context: Context, mode: String = MODE_TEST) {
+            runOnMain {
+                try {
+                    val intent = Intent(context, FloatingHudService::class.java).apply {
+                        putExtra(EXTRA_MODE, mode)
+                    }
+                    context.startService(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, FloatingHudService::class.java)
-            context.stopService(intent)
+            runOnMain {
+                try {
+                    val intent = Intent(context, FloatingHudService::class.java)
+                    context.stopService(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
 
         fun updateHud(title: String, subtitle: String, isSparkPhase1: Boolean = false) {
-            instance?.updateContent(title, subtitle, isSparkPhase1)
+            runOnMain {
+                instance?.updateContent(title, subtitle, isSparkPhase1)
+            }
         }
 
         fun showTouch(x: Float, y: Float, label: String, durationMs: Long = 800L) {
-            instance?.visualizerOverlay?.showTouch(x, y, label, durationMs)
+            runOnMain {
+                instance?.visualizerOverlay?.showTouch(x, y, label, durationMs)
+            }
         }
 
         fun showSwipe(startX: Float, startY: Float, endX: Float, endY: Float, label: String, durationMs: Long = 900L) {
-            instance?.visualizerOverlay?.showSwipe(startX, startY, endX, endY, label, durationMs)
+            runOnMain {
+                instance?.visualizerOverlay?.showSwipe(startX, startY, endX, endY, label, durationMs)
+            }
         }
 
         fun showStatus(message: String, durationMs: Long = 1200L) {
-            instance?.visualizerOverlay?.showStatus(message, durationMs)
+            runOnMain {
+                instance?.visualizerOverlay?.showStatus(message, durationMs)
+            }
         }
 
         fun requestStepConfirmation(stepDescription: String, currentStep: Int, totalSteps: Int) {
-            instance?.showStepConfirmation(stepDescription, currentStep, totalSteps)
+            runOnMain {
+                instance?.showStepConfirmation(stepDescription, currentStep, totalSteps)
+            }
         }
 
         fun clearStepConfirmation() {
-            instance?.hideStepConfirmation()
+            runOnMain {
+                instance?.hideStepConfirmation()
+            }
         }
     }
 
@@ -133,7 +167,11 @@ class FloatingHudService : Service() {
 
     private fun createOrUpdateView(mode: String) {
         if (hudContainer != null) {
-            hudContainer?.let { windowManager?.removeView(it) }
+            try {
+                hudContainer?.let { windowManager?.removeView(it) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             hudContainer = null
         }
 
@@ -395,32 +433,48 @@ class FloatingHudService : Service() {
     }
 
     fun updateContent(title: String, subtitle: String, isSparkPhase1: Boolean) {
-        titleView?.text = title
-        subtitleView?.text = subtitle
-        if (isSparkPhase1) {
-            nextButton?.visibility = View.VISIBLE
-            finishButton?.visibility = View.GONE
-        } else {
-            nextButton?.visibility = View.GONE
-            finishButton?.visibility = View.VISIBLE
+        runOnMain {
+            titleView?.text = title
+            subtitleView?.text = subtitle
+            if (isSparkPhase1) {
+                nextButton?.visibility = View.VISIBLE
+                finishButton?.visibility = View.GONE
+            } else {
+                nextButton?.visibility = View.GONE
+                finishButton?.visibility = View.VISIBLE
+            }
         }
     }
 
     fun showStepConfirmation(stepDescription: String, currentStep: Int, totalSteps: Int) {
-        stepDescriptionView?.text = "Step $currentStep/$totalSteps: $stepDescription"
-        stepConfirmationContainer?.visibility = View.VISIBLE
+        runOnMain {
+            stepDescriptionView?.text = "Step $currentStep/$totalSteps: $stepDescription"
+            stepConfirmationContainer?.visibility = View.VISIBLE
+        }
     }
 
     fun hideStepConfirmation() {
-        stepConfirmationContainer?.visibility = View.GONE
+        runOnMain {
+            stepConfirmationContainer?.visibility = View.GONE
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        hudContainer?.let { windowManager?.removeView(it) }
-        hudContainer = null
-        visualizerOverlay?.let { windowManager?.removeView(it) }
-        visualizerOverlay = null
-        instance = null
+        runOnMain {
+            try {
+                hudContainer?.let { windowManager?.removeView(it) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            hudContainer = null
+            try {
+                visualizerOverlay?.let { windowManager?.removeView(it) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            visualizerOverlay = null
+            instance = null
+        }
     }
 }
