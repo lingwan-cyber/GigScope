@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">GigScope</string>
+    <string name="accessibility_service_description">GigScope automates data collection from Spark Driver, OnePay, and Google Photos to audit driver earnings and identify tip reductions.</string>
+</resources>
