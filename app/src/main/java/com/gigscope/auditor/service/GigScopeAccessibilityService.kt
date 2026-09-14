@@ -99,7 +99,7 @@ class GigScopeAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
-        actionHelper = AccessibilityActionHelper { rootInActiveWindow }
+        actionHelper = AccessibilityActionHelper { this }
         sparkAutomator = SparkDriverAutomator(actionHelper)
         onePayAutomator = OnePayAutomator(actionHelper)
         photosAutomator = GooglePhotosAutomator(actionHelper)
@@ -112,7 +112,10 @@ class GigScopeAccessibilityService : AccessibilityService() {
             FloatingHudService.stop(this)
         }
         FloatingHudService.onCancelRequested = {
-            cancelRecording()
+            if (activeRecordingSession != null) {
+                cancelRecording()
+            }
+            activeTarget = ExecutionTarget.IDLE
             FloatingHudService.stop(this)
         }
 
@@ -173,6 +176,11 @@ class GigScopeAccessibilityService : AccessibilityService() {
 
     private fun handleRecordingEvent(event: AccessibilityEvent, session: RecordingSession) {
         val node = event.source
+        val rect = android.graphics.Rect()
+        node?.getBoundsInScreen(rect)
+
+        val screenX = if (!rect.isEmpty) rect.centerX() else -1
+        val screenY = if (!rect.isEmpty) rect.centerY() else -1
 
         when (event.eventType) {
             AccessibilityEvent.TYPE_VIEW_CLICKED -> {
@@ -189,10 +197,19 @@ class GigScopeAccessibilityService : AccessibilityService() {
                     contentDescription = contentDesc,
                     viewId = viewId,
                     className = className,
-                    isScrollable = false
+                    isScrollable = false,
+                    screenX = screenX,
+                    screenY = screenY,
+                    boundsLeft = if (!rect.isEmpty) rect.left else 0,
+                    boundsTop = if (!rect.isEmpty) rect.top else 0,
+                    boundsRight = if (!rect.isEmpty) rect.right else 0,
+                    boundsBottom = if (!rect.isEmpty) rect.bottom else 0
                 )
                 session.addStepToCurrentPhase(step)
                 updateFloatingHudForSession(session)
+                if (screenX >= 0 && screenY >= 0) {
+                    FloatingHudService.showTouch(screenX.toFloat(), screenY.toFloat(), text ?: contentDesc ?: "Tap")
+                }
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
                 val className = node?.className?.toString() ?: event.className?.toString()
@@ -202,10 +219,22 @@ class GigScopeAccessibilityService : AccessibilityService() {
                     actionType = ActionType.SCROLL_CONTAINER,
                     viewId = viewId,
                     className = className,
-                    isScrollable = true
+                    isScrollable = true,
+                    screenX = screenX,
+                    screenY = screenY,
+                    boundsLeft = if (!rect.isEmpty) rect.left else 0,
+                    boundsTop = if (!rect.isEmpty) rect.top else 0,
+                    boundsRight = if (!rect.isEmpty) rect.right else 0,
+                    boundsBottom = if (!rect.isEmpty) rect.bottom else 0
                 )
                 session.addStepToCurrentPhase(step)
                 updateFloatingHudForSession(session)
+                if (!rect.isEmpty) {
+                    val cx = rect.centerX().toFloat()
+                    val startY = rect.bottom.toFloat() * 0.8f
+                    val endY = rect.top.toFloat() * 1.2f
+                    FloatingHudService.showSwipe(cx, startY, cx, endY, "Scroll")
+                }
             }
         }
     }
@@ -213,7 +242,10 @@ class GigScopeAccessibilityService : AccessibilityService() {
     private fun handleSparkTripsOnly() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Scanning Spark Trips ($queryStartDate to $queryEndDate)...")
+            val msg = "Scanning Spark Trips ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ Spark: Trips Scan", "Filtering $queryStartDate to $queryEndDate")
             val root = rootInActiveWindow ?: return@launch
             val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
             val trips = sparkAutomator.navigateAndCollectTrips(
@@ -223,14 +255,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 customRecipe = sparkRecipe?.phases?.get("trips")
             )
             onSparkTripsCollected?.invoke(trips)
-            onStatusUpdate?.invoke("Found ${trips.size} Spark trips within date range")
+            val doneMsg = "Found ${trips.size} Spark trips within date range"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ Spark Trips Complete", "Extracted ${trips.size} trips")
         }
     }
 
     private fun handleSparkEarningsOnly() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Scanning Spark Earnings ($queryStartDate to $queryEndDate)...")
+            val msg = "Scanning Spark Earnings ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ Spark: Earnings Scan", "Filtering $queryStartDate to $queryEndDate")
             val root = rootInActiveWindow ?: return@launch
             val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
             val earnings = sparkAutomator.navigateAndCollectEarnings(
@@ -241,14 +279,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 customRecipe = sparkRecipe?.phases?.get("earnings")
             )
             onSparkEarningsCollected?.invoke(earnings)
-            onStatusUpdate?.invoke("Found ${earnings.size} Spark earnings breakdowns")
+            val doneMsg = "Found ${earnings.size} Spark earnings breakdowns"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ Spark Earnings Complete", "Extracted ${earnings.size} earnings")
         }
     }
 
     private fun handleSparkTraversal() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Traversing Spark: Trips & Earnings ($queryStartDate to $queryEndDate)...")
+            val msg = "Traversing Spark: Trips & Earnings ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ Spark Full Scan", "Trips & Earnings...")
             val root = rootInActiveWindow ?: return@launch
             val sparkRecipe = activeRecipeMap["com.walmart.sparkdriver"]
             val trips = sparkAutomator.navigateAndCollectTrips(
@@ -268,14 +312,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
             onSparkDataCollected?.invoke(trips, earnings)
             onSparkTripsCollected?.invoke(trips)
             onSparkEarningsCollected?.invoke(earnings)
-            onStatusUpdate?.invoke("Spark Scan Complete: ${trips.size} trips, ${earnings.size} earnings")
+            val doneMsg = "Spark Scan Complete: ${trips.size} trips, ${earnings.size} earnings"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ Spark Complete", "${trips.size} trips, ${earnings.size} earnings")
         }
     }
 
     private fun handleOnePayTripEarningsOnly() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Scanning OnePay Trip Earnings ($queryStartDate to $queryEndDate)...")
+            val msg = "Scanning OnePay Trip Earnings ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ OnePay: Trip Earnings", "Filtering $queryStartDate to $queryEndDate")
             val root = rootInActiveWindow ?: return@launch
             val onePayRecipe = activeRecipeMap["com.onefinance.one"]
             val tripEarnings = onePayAutomator.collectTripEarnings(
@@ -285,14 +335,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 customRecipe = onePayRecipe?.phases?.get("activity")
             )
             onOnePayTripEarningsCollected?.invoke(tripEarnings)
-            onStatusUpdate?.invoke("Found ${tripEarnings.size} OnePay trip earnings deposits")
+            val doneMsg = "Found ${tripEarnings.size} OnePay trip earnings deposits"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ OnePay Earnings Complete", "Extracted ${tripEarnings.size} deposits")
         }
     }
 
     private fun handleOnePayTipDepositsOnly() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Scanning OnePay Tip Deposits ($queryStartDate to $queryEndDate)...")
+            val msg = "Scanning OnePay Tip Deposits ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ OnePay: Tip Deposits", "Filtering $queryStartDate to $queryEndDate")
             val root = rootInActiveWindow ?: return@launch
             val onePayRecipe = activeRecipeMap["com.onefinance.one"]
             val tipDeposits = onePayAutomator.collectTipDeposits(
@@ -302,14 +358,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 customRecipe = onePayRecipe?.phases?.get("activity")
             )
             onOnePayTipDepositsCollected?.invoke(tipDeposits)
-            onStatusUpdate?.invoke("Found ${tipDeposits.size} OnePay tip deposits")
+            val doneMsg = "Found ${tipDeposits.size} OnePay tip deposits"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ OnePay Tips Complete", "Extracted ${tipDeposits.size} deposits")
         }
     }
 
     private fun handleOnePayTraversal() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Traversing OnePay Activity ($queryStartDate to $queryEndDate)...")
+            val msg = "Traversing OnePay Activity ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ OnePay Full Scan", "Filtering $queryStartDate to $queryEndDate")
             val root = rootInActiveWindow ?: return@launch
             val onePayRecipe = activeRecipeMap["com.onefinance.one"]
             val deposits = onePayAutomator.collectDeposits(
@@ -323,14 +385,20 @@ class GigScopeAccessibilityService : AccessibilityService() {
             val tipDeposits = deposits.filter { it.transactionType == OnePayTransactionType.TIP_DEPOSIT }
             onOnePayTripEarningsCollected?.invoke(tripEarnings)
             onOnePayTipDepositsCollected?.invoke(tipDeposits)
-            onStatusUpdate?.invoke("OnePay Complete: ${deposits.size} total deposits (${tripEarnings.size} trip earnings, ${tipDeposits.size} tips)")
+            val doneMsg = "OnePay Complete: ${deposits.size} total deposits (${tripEarnings.size} trip earnings, ${tipDeposits.size} tips)"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ OnePay Complete", "${deposits.size} deposits total")
         }
     }
 
     private fun handlePhotosTraversal() {
         activeTarget = ExecutionTarget.IDLE
         serviceScope.launch {
-            onStatusUpdate?.invoke("Scanning Google Photos: Screenshots ($queryStartDate to $queryEndDate)...")
+            val msg = "Scanning Google Photos: Screenshots ($queryStartDate to $queryEndDate)..."
+            onStatusUpdate?.invoke(msg)
+            FloatingHudService.showStatus(msg)
+            FloatingHudService.updateHud("⚡ Google Photos Scan", "Extracting trip screenshots...")
             val root = rootInActiveWindow ?: return@launch
             val photosRecipe = activeRecipeMap["com.google.android.apps.photos"]
             val offers = photosAutomator.collectScreenshotOffers(
@@ -341,7 +409,10 @@ class GigScopeAccessibilityService : AccessibilityService() {
             )
             onPhotosDataCollected?.invoke(offers)
             onPhotosScreenshotsExtracted?.invoke(offers)
-            onStatusUpdate?.invoke("Photos Complete: ${offers.size} screenshot offers extracted")
+            val doneMsg = "Photos Complete: ${offers.size} screenshot offers extracted"
+            onStatusUpdate?.invoke(doneMsg)
+            FloatingHudService.showStatus(doneMsg, 2500L)
+            FloatingHudService.updateHud("✅ Photos Complete", "${offers.size} offers extracted")
         }
     }
 

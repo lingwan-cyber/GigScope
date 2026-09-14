@@ -60,6 +60,10 @@ fun DashboardScreen(
     endDate: LocalDate,
     onStartDateChange: (LocalDate) -> Unit,
     onEndDateChange: (LocalDate) -> Unit,
+    automationSpeed: String = "Normal",
+    onAutomationSpeedChange: (String) -> Unit = {},
+    stepByStepMode: Boolean = false,
+    onStepByStepModeChange: (Boolean) -> Unit = {},
     sparkStatus: String,
     onePayStatus: String,
     photosStatus: String,
@@ -248,6 +252,16 @@ fun DashboardScreen(
                         onStartDateChange(LocalDate.now().minusDays(days.toLong()))
                         onEndDateChange(LocalDate.now())
                     }
+                )
+            }
+
+            // Automation Speed & Execution Control Card
+            item {
+                AutomationSettingsCard(
+                    automationSpeed = automationSpeed,
+                    onAutomationSpeedChange = onAutomationSpeedChange,
+                    stepByStepMode = stepByStepMode,
+                    onStepByStepModeChange = onStepByStepModeChange
                 )
             }
 
@@ -616,6 +630,14 @@ fun AboutDialog(onDismissRequest: () -> Unit) {
                             Text("Automatically discards screenshots of offers the driver rejected or missed by inner-joining with confirmed completed Spark trips.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Column {
+                            Text("• Visual Touch & Scroll Indicators", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                            Text("Displays interactive touch ripples, target rings, and glowing swipe arrows showing real-time automation movements across apps.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column {
+                            Text("• Configurable Speed & Step-by-Step Mode", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
+                            Text("Allows adjusting gesture execution speed (Fast, Normal, Slow, Very Slow) and stepping through operations one-by-one with user confirmation.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Column {
                             Text("• JSON Configuration Persistence", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodySmall)
                             Text("Save and load date ranges, custom APK configurations, and app paths via standard JSON files.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
@@ -815,6 +837,116 @@ fun DateRangeCard(
                 }
                 OutlinedButton(onClick = { onSelectPreset(30) }, modifier = Modifier.weight(1f)) {
                     Text("Last 30d", fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AutomationSettingsCard(
+    automationSpeed: String,
+    onAutomationSpeedChange: (String) -> Unit,
+    stepByStepMode: Boolean,
+    onStepByStepModeChange: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Speed, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Automation Speed & Execution Control", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                "Configure how fast touches and scrolls are performed, or step through operations with user confirmation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Speed selection row
+            Text("Movement & Traversal Speed:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val speeds = listOf("Fast", "Normal", "Slow", "Very Slow")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                speeds.forEach { speed ->
+                    val isSelected = speed.equals(automationSpeed, ignoreCase = true)
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onAutomationSpeedChange(speed) },
+                        label = { Text(speed, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        ),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Step-by-Step Mode Switch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text(
+                        "Step-by-Step Confirmation",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "Pause before every tap or scroll so you can inspect the target and confirm via the on-screen prompt.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = stepByStepMode,
+                    onCheckedChange = onStepByStepModeChange
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Visual Indicators Status Info
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Visibility,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Visual indicators active: Animated touch ripples, rings, and glowing swipe lines show live touch movements across apps.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
             }
         }

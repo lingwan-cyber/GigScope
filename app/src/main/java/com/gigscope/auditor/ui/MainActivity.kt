@@ -50,6 +50,12 @@ class MainActivity : ComponentActivity() {
             var sparkApkPath by remember { mutableStateOf(initialConfig.sparkApkPath) }
             var onePayApkPath by remember { mutableStateOf(initialConfig.onePayApkPath) }
             var photosApkPath by remember { mutableStateOf(initialConfig.photosApkPath) }
+            var automationSpeed by remember { mutableStateOf(initialConfig.automationSpeed) }
+            var stepByStepMode by remember { mutableStateOf(initialConfig.stepByStepMode) }
+
+            // Initialize FloatingHudService static settings
+            com.gigscope.auditor.service.FloatingHudService.currentSpeed = initialConfig.automationSpeed
+            com.gigscope.auditor.service.FloatingHudService.isStepByStepActive = initialConfig.stepByStepMode
 
             val appRecipes = remember {
                 mutableStateMapOf<String, AppRecipe>().apply {
@@ -64,7 +70,9 @@ class MainActivity : ComponentActivity() {
                     sparkApkPath = sparkApkPath,
                     onePayApkPath = onePayApkPath,
                     photosApkPath = photosApkPath,
-                    recipes = appRecipes.toMap()
+                    recipes = appRecipes.toMap(),
+                    automationSpeed = automationSpeed,
+                    stepByStepMode = stepByStepMode
                 )
                 prefs.edit().putString("saved_config_json", currentConfig.toJson()).apply()
             }
@@ -82,7 +90,10 @@ class MainActivity : ComponentActivity() {
                             endDate = endDate,
                             sparkApkPath = sparkApkPath,
                             onePayApkPath = onePayApkPath,
-                            recipes = appRecipes.toMap()
+                            photosApkPath = photosApkPath,
+                            recipes = appRecipes.toMap(),
+                            automationSpeed = automationSpeed,
+                            stepByStepMode = stepByStepMode
                         )
                         contentResolver.openOutputStream(uri)?.use { os ->
                             os.write(config.toJson().toByteArray(Charsets.UTF_8))
@@ -181,6 +192,10 @@ class MainActivity : ComponentActivity() {
                             sparkApkPath = loaded.sparkApkPath
                             onePayApkPath = loaded.onePayApkPath
                             photosApkPath = loaded.photosApkPath
+                            automationSpeed = loaded.automationSpeed
+                            stepByStepMode = loaded.stepByStepMode
+                            com.gigscope.auditor.service.FloatingHudService.currentSpeed = loaded.automationSpeed
+                            com.gigscope.auditor.service.FloatingHudService.isStepByStepActive = loaded.stepByStepMode
                             appRecipes.clear()
                             appRecipes.putAll(loaded.recipes)
                             GigScopeAccessibilityService.activeRecipeMap.clear()
@@ -197,6 +212,12 @@ class MainActivity : ComponentActivity() {
 
             // Connect callbacks from AccessibilityService
             LaunchedEffect(Unit) {
+                com.gigscope.auditor.service.FloatingHudService.onSpeedChanged = { newSpeed ->
+                    runOnUiThread {
+                        automationSpeed = newSpeed
+                        saveAutoPrefs()
+                    }
+                }
                 GigScopeAccessibilityService.onSparkDataCollected = { trips, earnings ->
                     runOnUiThread {
                         sparkTrips.clear()
@@ -285,6 +306,18 @@ class MainActivity : ComponentActivity() {
                 },
                 onEndDateChange = {
                     endDate = it
+                    saveAutoPrefs()
+                },
+                automationSpeed = automationSpeed,
+                onAutomationSpeedChange = {
+                    automationSpeed = it
+                    com.gigscope.auditor.service.FloatingHudService.currentSpeed = it
+                    saveAutoPrefs()
+                },
+                stepByStepMode = stepByStepMode,
+                onStepByStepModeChange = {
+                    stepByStepMode = it
+                    com.gigscope.auditor.service.FloatingHudService.isStepByStepActive = it
                     saveAutoPrefs()
                 },
                 sparkStatus = sparkStatus,
@@ -448,6 +481,14 @@ class MainActivity : ComponentActivity() {
         if (startDate != null) GigScopeAccessibilityService.queryStartDate = startDate
         if (endDate != null) GigScopeAccessibilityService.queryEndDate = endDate
         GigScopeAccessibilityService.activeTarget = target
+
+        if (Settings.canDrawOverlays(this)) {
+            com.gigscope.auditor.service.FloatingHudService.start(this, com.gigscope.auditor.service.FloatingHudService.MODE_TEST)
+            com.gigscope.auditor.service.FloatingHudService.updateHud(
+                title = "⚡ AUTOMATION RUNNING",
+                subtitle = "Speed: ${com.gigscope.auditor.service.FloatingHudService.currentSpeed} | Step: ${if (com.gigscope.auditor.service.FloatingHudService.isStepByStepActive) "ON" else "OFF"}"
+            )
+        }
 
         val targetPackage = resolveTargetPackage(defaultPackage, customApkPath)
 

@@ -26,9 +26,16 @@ class FloatingHudService : Service() {
         const val MODE_TEST = "test"
         const val MODE_RECORD = "record"
 
+        var currentSpeed: String = "Normal" // "Fast", "Normal", "Slow", "Very Slow"
+        var isStepByStepActive: Boolean = false
+
         var onNextPhaseRequested: (() -> Unit)? = null
         var onFinishRequested: (() -> Unit)? = null
         var onCancelRequested: (() -> Unit)? = null
+
+        var onStepConfirmed: (() -> Unit)? = null
+        var onAutoRunRequested: (() -> Unit)? = null
+        var onSpeedChanged: ((String) -> Unit)? = null
 
         fun start(context: Context, mode: String = MODE_TEST) {
             val intent = Intent(context, FloatingHudService::class.java).apply {
@@ -45,15 +52,45 @@ class FloatingHudService : Service() {
         fun updateHud(title: String, subtitle: String, isSparkPhase1: Boolean = false) {
             instance?.updateContent(title, subtitle, isSparkPhase1)
         }
+
+        fun showTouch(x: Float, y: Float, label: String, durationMs: Long = 800L) {
+            instance?.visualizerOverlay?.showTouch(x, y, label, durationMs)
+        }
+
+        fun showSwipe(startX: Float, startY: Float, endX: Float, endY: Float, label: String, durationMs: Long = 900L) {
+            instance?.visualizerOverlay?.showSwipe(startX, startY, endX, endY, label, durationMs)
+        }
+
+        fun showStatus(message: String, durationMs: Long = 1200L) {
+            instance?.visualizerOverlay?.showStatus(message, durationMs)
+        }
+
+        fun requestStepConfirmation(stepDescription: String, currentStep: Int, totalSteps: Int) {
+            instance?.showStepConfirmation(stepDescription, currentStep, totalSteps)
+        }
+
+        fun clearStepConfirmation() {
+            instance?.hideStepConfirmation()
+        }
     }
 
     private var windowManager: WindowManager? = null
     private var hudContainer: LinearLayout? = null
+    private var visualizerOverlay: TouchVisualizerOverlay? = null
+
     private var titleView: TextView? = null
     private var subtitleView: TextView? = null
+    private var speedButton: Button? = null
+
+    // Record Mode Buttons
     private var nextButton: Button? = null
     private var finishButton: Button? = null
     private var cancelButton: Button? = null
+
+    // Step-by-Step Confirmation View
+    private var stepConfirmationContainer: LinearLayout? = null
+    private var stepDescriptionView: TextView? = null
+
     private var layoutParams: WindowManager.LayoutParams? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -62,6 +99,7 @@ class FloatingHudService : Service() {
         super.onCreate()
         instance = this
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
+        setupVisualizerOverlay()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -71,6 +109,27 @@ class FloatingHudService : Service() {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun setupVisualizerOverlay() {
+        if (visualizerOverlay == null) {
+            val overlay = TouchVisualizerOverlay(this)
+            val overlayParams = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT
+            )
+            try {
+                windowManager?.addView(overlay, overlayParams)
+                visualizerOverlay = overlay
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
 
     private fun createOrUpdateView(mode: String) {
         if (hudContainer != null) {
@@ -87,12 +146,12 @@ class FloatingHudService : Service() {
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
             x = 0
-            y = dp(60)
+            y = dp(50)
         }
         layoutParams = params
 
         val bgDrawable = GradientDrawable().apply {
-            setColor(Color.parseColor("#E6212121")) // Semi-transparent dark
+            setColor(Color.parseColor("#EE1E1E1E")) // High contrast dark
             cornerRadius = dp(14).toFloat()
             setStroke(dp(1), Color.parseColor("#44FFFFFF"))
         }
@@ -107,7 +166,7 @@ class FloatingHudService : Service() {
         if (mode == MODE_RECORD) {
             buildRecordHud()
         } else {
-            buildTestHud()
+            buildAutomationHud()
         }
 
         setupDragListener(hudContainer!!, params)
@@ -119,46 +178,149 @@ class FloatingHudService : Service() {
         }
     }
 
-    private fun buildTestHud() {
+    private fun buildAutomationHud() {
+        // Top row: Title + Speed button
+        val topRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
         val title = TextView(this).apply {
-            text = "GigScope: Active Test Traversal..."
-            setTextColor(Color.WHITE)
-            textSize = 14f
+            text = "⚡ GigScope Automation"
+            setTextColor(Color.parseColor("#00E5FF")) // Bright Cyan
+            textSize = 13f
             setTypeface(null, Typeface.BOLD)
         }
         titleView = title
-        hudContainer?.addView(title)
+        topRow.addView(title)
+
+        val spacer = View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(16), 0)
+        }
+        topRow.addView(spacer)
+
+        // Speed Toggle Button: Fast -> Normal -> Slow -> Very Slow
+        val btnSpeed = Button(this).apply {
+            text = "Speed: $currentSpeed"
+            textSize = 10f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#37474F"))
+            setPadding(dp(6), dp(0), dp(6), dp(0))
+            setOnClickListener {
+                currentSpeed = when (currentSpeed) {
+                    "Fast" -> "Normal"
+                    "Normal" -> "Slow"
+                    "Slow" -> "Very Slow"
+                    else -> "Fast"
+                }
+                text = "Speed: $currentSpeed"
+                onSpeedChanged?.invoke(currentSpeed)
+            }
+        }
+        speedButton = btnSpeed
+        topRow.addView(btnSpeed)
+
+        hudContainer?.addView(topRow)
+
+        // Subtitle status line
+        val subtitle = TextView(this).apply {
+            text = "Active traversal & inspection..."
+            setTextColor(Color.parseColor("#E0E0E0"))
+            textSize = 11f
+            setPadding(0, dp(2), 0, dp(4))
+        }
+        subtitleView = subtitle
+        hudContainer?.addView(subtitle)
+
+        // Step Confirmation Container (Hidden by default, shown when step-by-step confirmation is needed)
+        val stepContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(4), 0, 0)
+        }
+
+        val stepDesc = TextView(this).apply {
+            text = "Confirm next step..."
+            setTextColor(Color.parseColor("#FFD54F")) // Amber
+            textSize = 11f
+            setTypeface(null, Typeface.BOLD)
+        }
+        stepDescriptionView = stepDesc
+        stepContainer.addView(stepDesc)
+
+        val stepButtonRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, 0)
+        }
+
+        val btnStep = Button(this).apply {
+            text = "▶️ Step"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#0288D1")) // Blue
+            setPadding(dp(8), dp(0), dp(8), dp(0))
+            setOnClickListener {
+                onStepConfirmed?.invoke()
+            }
+        }
+        stepButtonRow.addView(btnStep)
+
+        val btnAuto = Button(this).apply {
+            text = "⏩ Auto-Run"
+            textSize = 11f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(Color.parseColor("#43A047")) // Green
+            setPadding(dp(8), dp(0), dp(8), dp(0))
+            setOnClickListener {
+                onAutoRunRequested?.invoke()
+            }
+        }
+        stepButtonRow.addView(btnAuto)
+
+        val btnStop = Button(this).apply {
+            text = "⏹️ Stop"
+            textSize = 11f
+            setTextColor(Color.parseColor("#FF8A80"))
+            setBackgroundColor(Color.TRANSPARENT)
+            setPadding(dp(8), dp(0), dp(8), dp(0))
+            setOnClickListener {
+                onCancelRequested?.invoke()
+            }
+        }
+        stepButtonRow.addView(btnStop)
+
+        stepContainer.addView(stepButtonRow)
+        stepConfirmationContainer = stepContainer
+        hudContainer?.addView(stepContainer)
     }
 
     private fun buildRecordHud() {
-        // Title row: 🔴 REC + App Name
         val title = TextView(this).apply {
             text = "🔴 REC: Demonstrating Navigation"
-            setTextColor(Color.parseColor("#FF5252")) // Bright red
+            setTextColor(Color.parseColor("#FF5252"))
             textSize = 13f
             setTypeface(null, Typeface.BOLD)
         }
         titleView = title
         hudContainer?.addView(title)
 
-        // Subtitle row: Phase + step count
         val subtitle = TextView(this).apply {
-            text = "Tap target tabs/buttons & scroll once"
+            text = "Tap target tabs & buttons. Coordinates recorded automatically."
             setTextColor(Color.parseColor("#E0E0E0"))
-            textSize = 12f
+            textSize = 11f
             setPadding(0, dp(2), 0, dp(6))
         }
         subtitleView = subtitle
         hudContainer?.addView(subtitle)
 
-        // Button row
         val buttonRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
 
         val btnNext = Button(this).apply {
-            text = "Next: Earnings"
+            text = "Next Phase"
             textSize = 11f
             setTextColor(Color.WHITE)
             setBackgroundColor(Color.parseColor("#1E88E5"))
@@ -175,7 +337,7 @@ class FloatingHudService : Service() {
             text = "Save & Finish"
             textSize = 11f
             setTextColor(Color.WHITE)
-            setBackgroundColor(Color.parseColor("#43A047")) // Green
+            setBackgroundColor(Color.parseColor("#43A047"))
             setPadding(dp(8), dp(2), dp(8), dp(2))
             setOnClickListener {
                 onFinishRequested?.invoke()
@@ -244,11 +406,21 @@ class FloatingHudService : Service() {
         }
     }
 
+    fun showStepConfirmation(stepDescription: String, currentStep: Int, totalSteps: Int) {
+        stepDescriptionView?.text = "Step $currentStep/$totalSteps: $stepDescription"
+        stepConfirmationContainer?.visibility = View.VISIBLE
+    }
+
+    fun hideStepConfirmation() {
+        stepConfirmationContainer?.visibility = View.GONE
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         hudContainer?.let { windowManager?.removeView(it) }
         hudContainer = null
+        visualizerOverlay?.let { windowManager?.removeView(it) }
+        visualizerOverlay = null
         instance = null
     }
 }
-

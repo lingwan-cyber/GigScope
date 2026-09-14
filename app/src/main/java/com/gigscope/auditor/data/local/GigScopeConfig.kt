@@ -14,12 +14,14 @@ data class GigScopeConfig(
     val sparkApkPath: String = "",
     val onePayApkPath: String = "",
     val photosApkPath: String = "",
+    val automationSpeed: String = "Normal", // "Fast", "Normal", "Slow", "Very Slow"
+    val stepByStepMode: Boolean = false,
     val recipes: Map<String, AppRecipe> = emptyMap()
 ) {
     fun toJson(indent: Int = 2): String {
         val json = JSONObject()
         json.put("format", "GigScopeConfig")
-        json.put("version", 2)
+        json.put("version", 3)
         json.put(
             "exportTime",
             java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss z", java.util.Locale.US).format(java.util.Date())
@@ -29,6 +31,8 @@ data class GigScopeConfig(
         json.put("sparkApkPath", sparkApkPath)
         json.put("onePayApkPath", onePayApkPath)
         json.put("photosApkPath", photosApkPath)
+        json.put("automationSpeed", automationSpeed)
+        json.put("stepByStepMode", stepByStepMode)
 
         val recipesObj = JSONObject()
         for ((pkg, recipe) in recipes) {
@@ -52,6 +56,12 @@ data class GigScopeConfig(
                     if (step.viewId != null) stepObj.put("viewId", step.viewId)
                     if (step.className != null) stepObj.put("className", step.className)
                     stepObj.put("isScrollable", step.isScrollable)
+                    if (step.screenX >= 0) stepObj.put("screenX", step.screenX)
+                    if (step.screenY >= 0) stepObj.put("screenY", step.screenY)
+                    if (step.boundsLeft != 0) stepObj.put("boundsLeft", step.boundsLeft)
+                    if (step.boundsTop != 0) stepObj.put("boundsTop", step.boundsTop)
+                    if (step.boundsRight != 0) stepObj.put("boundsRight", step.boundsRight)
+                    if (step.boundsBottom != 0) stepObj.put("boundsBottom", step.boundsBottom)
                     stepsArray.put(stepObj)
                 }
                 phaseObj.put("steps", stepsArray)
@@ -81,6 +91,8 @@ data class GigScopeConfig(
             val sApk = json.optString("sparkApkPath", "")
             val oApk = json.optString("onePayApkPath", "")
             val pApk = json.optString("photosApkPath", "")
+            val speed = json.optString("automationSpeed", "Normal")
+            val stepMode = json.optBoolean("stepByStepMode", false)
 
             val recipesMap = mutableMapOf<String, AppRecipe>()
             val recipesObj = json.optJSONObject("recipes")
@@ -116,7 +128,13 @@ data class GigScopeConfig(
                                             contentDescription = if (stepObj.has("contentDescription")) stepObj.getString("contentDescription") else null,
                                             viewId = if (stepObj.has("viewId")) stepObj.getString("viewId") else null,
                                             className = if (stepObj.has("className")) stepObj.getString("className") else null,
-                                            isScrollable = stepObj.optBoolean("isScrollable", false)
+                                            isScrollable = stepObj.optBoolean("isScrollable", false),
+                                            screenX = stepObj.optInt("screenX", -1),
+                                            screenY = stepObj.optInt("screenY", -1),
+                                            boundsLeft = stepObj.optInt("boundsLeft", 0),
+                                            boundsTop = stepObj.optInt("boundsTop", 0),
+                                            boundsRight = stepObj.optInt("boundsRight", 0),
+                                            boundsBottom = stepObj.optInt("boundsBottom", 0)
                                         )
                                     )
                                 }
@@ -134,6 +152,8 @@ data class GigScopeConfig(
                 sparkApkPath = sApk,
                 onePayApkPath = oApk,
                 photosApkPath = pApk,
+                automationSpeed = speed,
+                stepByStepMode = stepMode,
                 recipes = recipesMap
             )
         }

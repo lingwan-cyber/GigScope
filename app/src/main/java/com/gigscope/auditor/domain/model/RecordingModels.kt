@@ -13,7 +13,13 @@ data class RecordedStep(
     val contentDescription: String? = null,
     val viewId: String? = null,
     val className: String? = null,
-    val isScrollable: Boolean = false
+    val isScrollable: Boolean = false,
+    val screenX: Int = -1,
+    val screenY: Int = -1,
+    val boundsLeft: Int = 0,
+    val boundsTop: Int = 0,
+    val boundsRight: Int = 0,
+    val boundsBottom: Int = 0
 )
 
 data class AppPhaseRecipe(

@@ -6,4 +6,5 @@
     android:notificationTimeout="250"
     android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
     android:canRetrieveWindowContent="true"
+    android:canPerformGestures="true"
     android:packageNames="com.walmart.sparkdriver,com.onefinance.one,com.google.android.apps.photos" />

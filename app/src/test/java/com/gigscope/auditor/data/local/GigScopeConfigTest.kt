@@ -17,13 +17,21 @@ class GigScopeConfigTest {
                     stepIndex = 0,
                     actionType = ActionType.CLICK,
                     targetText = "Trips",
-                    className = "android.widget.TextView"
+                    className = "android.widget.TextView",
+                    screenX = 540,
+                    screenY = 2200,
+                    boundsLeft = 400,
+                    boundsTop = 2150,
+                    boundsRight = 680,
+                    boundsBottom = 2250
                 ),
                 RecordedStep(
                     stepIndex = 1,
                     actionType = ActionType.SCROLL_CONTAINER,
                     className = "androidx.recyclerview.widget.RecyclerView",
-                    isScrollable = true
+                    isScrollable = true,
+                    screenX = 540,
+                    screenY = 1200
                 )
             )
         )
@@ -36,7 +44,9 @@ class GigScopeConfigTest {
                     stepIndex = 0,
                     actionType = ActionType.CLICK,
                     targetText = "Earnings",
-                    className = "android.widget.TextView"
+                    className = "android.widget.TextView",
+                    screenX = 810,
+                    screenY = 2200
                 )
             )
         )
@@ -56,7 +66,9 @@ class GigScopeConfigTest {
             sparkApkPath = "Spark Driver (com.walmart.sparkdriver)",
             onePayApkPath = "OnePay (com.onefinance.one)",
             photosApkPath = "",
-            recipes = mapOf("com.walmart.sparkdriver" to sparkRecipe)
+            recipes = mapOf("com.walmart.sparkdriver" to sparkRecipe),
+            automationSpeed = "Slow",
+            stepByStepMode = true
         )
 
         val json = originalConfig.toJson()
@@ -64,6 +76,8 @@ class GigScopeConfigTest {
         assertTrue(json.contains("\"com.walmart.sparkdriver\""))
         assertTrue(json.contains("\"trips\""))
         assertTrue(json.contains("\"earnings\""))
+        assertTrue(json.contains("\"automationSpeed\": \"Slow\""))
+        assertTrue(json.contains("\"stepByStepMode\": true"))
 
         val deserialized = GigScopeConfig.fromJson(json)
 
@@ -71,6 +85,8 @@ class GigScopeConfigTest {
         assertEquals(originalConfig.endDate, deserialized.endDate)
         assertEquals(originalConfig.sparkApkPath, deserialized.sparkApkPath)
         assertEquals(originalConfig.onePayApkPath, deserialized.onePayApkPath)
+        assertEquals("Slow", deserialized.automationSpeed)
+        assertTrue(deserialized.stepByStepMode)
 
         assertTrue(deserialized.recipes.containsKey("com.walmart.sparkdriver"))
         val loadedSpark = deserialized.recipes["com.walmart.sparkdriver"]!!
@@ -81,12 +97,16 @@ class GigScopeConfigTest {
         assertEquals(2, loadedTrips.steps.size)
         assertEquals("Trips", loadedTrips.steps[0].targetText)
         assertEquals(ActionType.CLICK, loadedTrips.steps[0].actionType)
+        assertEquals(540, loadedTrips.steps[0].screenX)
+        assertEquals(2200, loadedTrips.steps[0].screenY)
+        assertEquals(400, loadedTrips.steps[0].boundsLeft)
         assertEquals(ActionType.SCROLL_CONTAINER, loadedTrips.steps[1].actionType)
         assertTrue(loadedTrips.steps[1].isScrollable)
 
         val loadedEarnings = loadedSpark.phases["earnings"]!!
         assertEquals(1, loadedEarnings.steps.size)
         assertEquals("Earnings", loadedEarnings.steps[0].targetText)
+        assertEquals(810, loadedEarnings.steps[0].screenX)
     }
 
     @Test
