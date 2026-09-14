@@ -6,8 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import com.gigscope.auditor.data.local.dao.*
 import com.gigscope.auditor.data.local.entity.*
-import net.sqlcipher.database.SQLiteDatabase
-import net.sqlcipher.database.SupportFactory
+import net.zetetic.database.sqlcipher.SupportOpenHelperFactory
 
 @Database(
     entities = [
@@ -32,7 +31,8 @@ abstract class GigScopeDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context, passphrase: ByteArray): GigScopeDatabase {
             return INSTANCE ?: synchronized(this) {
-                val factory = SupportFactory(passphrase)
+                System.loadLibrary("sqlcipher")
+                val factory = SupportOpenHelperFactory(passphrase)
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
                     GigScopeDatabase::class.java,
