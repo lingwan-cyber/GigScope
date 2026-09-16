@@ -37,6 +37,14 @@ class AccessibilityActionHelper(
         }
     }
 
+    fun getScreenHeight(): Int {
+        return serviceProvider()?.resources?.displayMetrics?.heightPixels ?: 2400
+    }
+
+    fun getScreenWidth(): Int {
+        return serviceProvider()?.resources?.displayMetrics?.widthPixels ?: 1080
+    }
+
     var lastCurrentAction: String = "Idle"
     var lastNextAction: String? = null
 

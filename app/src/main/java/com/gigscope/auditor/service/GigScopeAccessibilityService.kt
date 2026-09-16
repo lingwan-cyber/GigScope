@@ -92,6 +92,7 @@ class GigScopeAccessibilityService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var activeJob: Job? = null
+    private var lastRecordedScrollTime: Long = 0L
     private lateinit var actionHelper: AccessibilityActionHelper
     private lateinit var sparkAutomator: SparkDriverAutomator
     private lateinit var onePayAutomator: OnePayAutomator
@@ -196,10 +197,41 @@ class GigScopeAccessibilityService : AccessibilityService() {
         val screenY = if (!rect.isEmpty) rect.centerY() else -1
 
         when (event.eventType) {
-            AccessibilityEvent.TYPE_VIEW_CLICKED -> {
-                val text = node?.text?.toString()?.takeIf { it.isNotBlank() }
+            AccessibilityEvent.TYPE_VIEW_CLICKED, AccessibilityEvent.TYPE_VIEW_SELECTED -> {
+                var text = node?.text?.toString()?.takeIf { it.isNotBlank() }
                     ?: event.text.joinToString(" ").takeIf { it.isNotBlank() }
-                val contentDesc = node?.contentDescription?.toString()
+
+                // If clicked container has no text, look at children (e.g. TextView "Screenshots" inside clickable View item)
+                if (text.isNullOrBlank() && node != null) {
+                    for (i in 0 until node.childCount) {
+                        val child = node.getChild(i)
+                        val childText = child?.text?.toString()?.takeIf { it.isNotBlank() }
+                            ?: child?.contentDescription?.toString()?.takeIf { it.isNotBlank() }
+                        if (childText != null) {
+                            text = childText
+                            break
+                        }
+                    }
+                }
+
+                // If still empty, check parent
+                if (text.isNullOrBlank() && node?.parent != null) {
+                    val p = node.parent
+                    text = p.text?.toString()?.takeIf { it.isNotBlank() }
+                        ?: p.contentDescription?.toString()?.takeIf { it.isNotBlank() }
+                }
+
+                var contentDesc = node?.contentDescription?.toString()
+                if (contentDesc.isNullOrBlank() && node != null) {
+                    for (i in 0 until node.childCount) {
+                        val cDesc = node.getChild(i)?.contentDescription?.toString()
+                        if (!cDesc.isNullOrBlank()) {
+                            contentDesc = cDesc
+                            break
+                        }
+                    }
+                }
+
                 val viewId = node?.viewIdResourceName
                 val className = node?.className?.toString() ?: event.className?.toString()
 
@@ -225,6 +257,13 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 }
             }
             AccessibilityEvent.TYPE_VIEW_SCROLLED -> {
+                val now = System.currentTimeMillis()
+                // Coalesce rapid scrolls into a single intentional scroll action (debounce 1000ms)
+                if (now - lastRecordedScrollTime < 1000L) {
+                    return
+                }
+                lastRecordedScrollTime = now
+
                 val className = node?.className?.toString() ?: event.className?.toString()
                 val viewId = node?.viewIdResourceName
                 val step = RecordedStep(
