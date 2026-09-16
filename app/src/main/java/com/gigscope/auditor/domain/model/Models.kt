@@ -52,7 +52,12 @@ data class PhotoOfferRecord(
     val imageUri: String? = null,
     val isAccepted: Boolean = false,
     val extractedText: String? = null,
-    val estimatedTotal: Double? = null
+    val estimatedTotal: Double? = null,
+    val customerName: String? = null,
+    val dropoffAddress: String? = null,
+    val storeName: String? = null,
+    val stopCount: Int? = null,
+    val distanceMiles: Double? = null
 )
 
 enum class DiscrepancyType {

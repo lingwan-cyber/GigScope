@@ -171,6 +171,11 @@ object ResultExporters {
         for (offer in offers) {
             val offerObj = JSONObject()
             offerObj.put("tripId", offer.tripId)
+            offerObj.put("customerName", offer.customerName ?: "")
+            offerObj.put("dropoffAddress", offer.dropoffAddress ?: "")
+            offerObj.put("storeName", offer.storeName ?: "")
+            if (offer.stopCount != null) offerObj.put("stopCount", offer.stopCount)
+            if (offer.distanceMiles != null) offerObj.put("distanceMiles", offer.distanceMiles)
             offerObj.put("captureDate", offer.captureDate.format(dateFormatter))
             offerObj.put("timestamp", offer.timestamp ?: "")
             offerObj.put("basePay", offer.basePay)

@@ -486,6 +486,7 @@ class GigScopeAccessibilityService : AccessibilityService() {
                 val root = rootInActiveWindow ?: return@launch
                 val photosRecipe = activeRecipeMap["com.google.android.apps.photos"]
                 val offers = photosAutomator.collectScreenshotOffers(
+                    context = applicationContext,
                     root = root,
                     startDate = queryStartDate,
                     endDate = queryEndDate,

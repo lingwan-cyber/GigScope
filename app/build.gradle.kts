@@ -68,6 +68,7 @@ dependencies {
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.sqlite)
     implementation(libs.sqlcipher.android)
+    implementation(libs.mlkit.text.recognition)
 
     implementation(libs.kotlinx.coroutines.android)
 

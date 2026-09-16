@@ -1716,6 +1716,32 @@ fun PhotosOffersDialog(
                                         color = MaterialTheme.colorScheme.outline
                                     )
                                 }
+                                if (!offer.customerName.isNullOrBlank() || !offer.dropoffAddress.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    if (!offer.customerName.isNullOrBlank()) {
+                                        Text(
+                                            "👤 Customer: ${offer.customerName}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    if (!offer.dropoffAddress.isNullOrBlank()) {
+                                        Text(
+                                            "📍 Drop-off: ${offer.dropoffAddress}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                                if (!offer.storeName.isNullOrBlank()) {
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        "🏪 Pickup: ${offer.storeName}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.outline
+                                    )
+                                }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
